@@ -5,6 +5,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import {
   buildProvisioningPlan,
+  buildProvisioningSourceHash,
   buildProvisioningSummary,
   dedupeRosterRows,
   generateActivationPassword,
@@ -54,13 +55,38 @@ function readPlan(filePath) {
   return { members, plan: buildProvisioningPlan(members), summary: buildProvisioningSummary(members) };
 }
 
-async function findOrCreateUser(auth, member) {
+async function getUserByEmailOrNull(auth, email) {
   try {
-    const existing = await auth.getUserByEmail(member.syntheticEmail);
-    return { user: existing, activationPassword: '', created: false };
+    return await auth.getUserByEmail(email);
   } catch (error) {
-    if (error?.code !== 'auth/user-not-found') throw error;
+    if (error?.code === 'auth/user-not-found') return null;
+    throw error;
   }
+}
+
+async function getUserByUidOrNull(auth, uid) {
+  try {
+    return await auth.getUser(uid);
+  } catch (error) {
+    if (error?.code === 'auth/user-not-found') return null;
+    throw error;
+  }
+}
+
+async function findOrCreateUser(auth, member, ledgerData) {
+  const ledgerUid = typeof ledgerData?.uid === 'string' ? ledgerData.uid : '';
+  const ledgerUser = ledgerUid ? await getUserByUidOrNull(auth, ledgerUid) : null;
+  const emailUser = await getUserByEmailOrNull(auth, member.syntheticEmail);
+
+  if (ledgerUser && emailUser && ledgerUser.uid !== emailUser.uid) {
+    throw new Error(`PROVISION_CONFLICT member=${member.memberCode} reason=LEDGER_UID_EMAIL_UID_MISMATCH`);
+  }
+  if (ledgerUid && !ledgerUser && emailUser && emailUser.uid !== ledgerUid) {
+    throw new Error(`PROVISION_CONFLICT member=${member.memberCode} reason=STALE_LEDGER_UID`);
+  }
+
+  const existing = ledgerUser ?? emailUser;
+  if (existing) return { user: existing, activationPassword: '', created: false };
 
   const activationPassword = generateActivationPassword();
   const user = await auth.createUser({
@@ -74,7 +100,16 @@ async function findOrCreateUser(auth, member) {
 }
 
 async function provisionMember(auth, db, member) {
-  const { user, activationPassword, created } = await findOrCreateUser(auth, member);
+  const ledgerRef = db.collection('clubProvisioning').doc(member.memberCode);
+  const ledgerSnapshot = await ledgerRef.get();
+  const ledgerData = ledgerSnapshot.exists ? ledgerSnapshot.data() : null;
+  const sourceHash = buildProvisioningSourceHash(member);
+
+  const { user, activationPassword, created } = await findOrCreateUser(auth, member, ledgerData);
+  if (ledgerData?.uid && ledgerData.uid !== user.uid) {
+    throw new Error(`PROVISION_CONFLICT member=${member.memberCode} reason=LEDGER_UID_MISMATCH`);
+  }
+
   const current = await auth.getUser(user.uid);
   const previousClaims = current.customClaims ?? {};
   const mustChangePassword = created ? true : previousClaims.mustChangePassword !== false;
@@ -94,8 +129,10 @@ async function provisionMember(auth, db, member) {
     role: member.role,
     verificationStatus: 'not_required',
     professionalTitle: member.title,
+    clubTitle: member.title,
     memberCode: member.memberCode,
     provisioningSource: 'roster',
+    accountStatus: current.disabled ? 'disabled' : 'active',
     updatedAt: FieldValue.serverTimestamp(),
   };
 
@@ -107,15 +144,28 @@ async function provisionMember(auth, db, member) {
       createdAt: FieldValue.serverTimestamp(),
     });
   }
+
   await userRef.set(profilePatch, { merge: true });
   await userRef.collection('private').doc('access').set({
     memberCode: member.memberCode,
     syntheticEmail: member.syntheticEmail,
     mustChangePassword,
     sourceConflict: member.sourceConflict,
+    provisioningSource: 'roster',
+    sourceHash,
     sourceImportedAt: FieldValue.serverTimestamp(),
     disabled: current.disabled,
   }, { merge: true });
+
+  const ledgerPatch = {
+    uid: user.uid,
+    memberCode: member.memberCode,
+    sourceHash,
+    status: 'provisioned',
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (!ledgerSnapshot.exists) ledgerPatch.createdAt = FieldValue.serverTimestamp();
+  await ledgerRef.set(ledgerPatch, { merge: true });
 
   return { created, memberCode: member.memberCode, syntheticEmail: member.syntheticEmail, activationPassword };
 }
