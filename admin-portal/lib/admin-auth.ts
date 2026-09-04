@@ -22,15 +22,17 @@ export interface AccPrincipal {
   claims: AccClaims;
 }
 
-export async function requireAccRole(request: Request, minimumRole: AccRole): Promise<AccPrincipal> {
-  let decoded: DecodedIdToken;
+export async function requireFirebaseUser(request: Request): Promise<DecodedIdToken> {
   try {
-    decoded = await adminAuth().verifyIdToken(bearerToken(request), true);
+    return await adminAuth().verifyIdToken(bearerToken(request), true);
   } catch (error) {
     if (error instanceof AccHttpError) throw error;
     throw new AccHttpError(401, 'UNAUTHORIZED');
   }
+}
 
+export async function requireAccRole(request: Request, minimumRole: AccRole): Promise<AccPrincipal> {
+  const decoded = await requireFirebaseUser(request);
   const claims = claimsFromDecodedToken(decoded as unknown as Record<string, unknown>);
   try {
     assertAccClaims(claims, minimumRole);
