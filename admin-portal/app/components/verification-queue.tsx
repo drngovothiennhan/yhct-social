@@ -5,11 +5,17 @@ import type { User } from 'firebase/auth';
 import { accApi } from '@/lib/api-client';
 import { canDecideVerification } from '@/lib/module-c-policy';
 
+type VerificationEvidenceRow = {
+  type?: unknown;
+  label?: unknown;
+  storagePath?: unknown;
+};
+
 type VerificationRow = {
   uid: string;
   status: string;
   professionalType: string;
-  evidence: Array<{ type?: unknown; label?: unknown; storagePath?: unknown }>;
+  evidence: VerificationEvidenceRow[];
   attempt: number;
 };
 
@@ -36,6 +42,33 @@ export function VerificationQueue({ user, role }: { user: User; role: string }) 
       .catch(() => { if (active) setMessage('Không tải được hàng đợi xác minh.'); });
     return () => { active = false; };
   }, [role, user]);
+
+  async function openEvidence(row: VerificationRow, item: VerificationEvidenceRow, index: number) {
+    if (!canDecideVerification(role) || busy || typeof item.storagePath !== 'string') return;
+    const key = `evidence:${row.uid}:${index}`;
+    setBusy(key);
+    setMessage('');
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/verification/requests/${encodeURIComponent(row.uid)}/evidence?path=${encodeURIComponent(item.storagePath)}`,
+        { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' },
+      );
+      if (!response.ok) throw new Error('EVIDENCE_UNAVAILABLE');
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.target = '_blank';
+      anchor.rel = 'noreferrer';
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch {
+      setMessage('Không thể mở minh chứng riêng tư.');
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function decide(row: VerificationRow, decision: 'verified' | 'rejected') {
     if (!canDecideVerification(role) || busy) return;
@@ -68,7 +101,7 @@ export function VerificationQueue({ user, role }: { user: User; role: string }) 
     <div className="panel-head"><div><h2>Hồ sơ chờ xác minh</h2><p>Mặc định: pending · cũ nhất trước · tối đa 30 hồ sơ.</p></div><button className="secondary" onClick={() => void load()}>Tải lại</button></div>
     {message ? <p className="notice" role="status">{message}</p> : null}
     <div className="table-wrap"><table><thead><tr><th>UID</th><th>Nhóm chuyên môn</th><th>Lần nộp</th><th>Minh chứng</th><th>Quyết định</th></tr></thead><tbody>
-      {requests.map((row) => <tr key={row.uid}><td>{row.uid}</td><td>{row.professionalType || '—'}</td><td>{row.attempt}</td><td>{row.evidence.map((item, index) => <span key={`${row.uid}-${index}`}>{String(item.label ?? item.type ?? 'Minh chứng')}{index < row.evidence.length - 1 ? ' · ' : ''}</span>)}</td><td><div className="top-actions"><button disabled={Boolean(busy)} onClick={() => void decide(row, 'verified')}>Phê duyệt</button><button className="secondary" disabled={Boolean(busy)} onClick={() => void decide(row, 'rejected')}>Từ chối</button></div></td></tr>)}
+      {requests.map((row) => <tr key={row.uid}><td>{row.uid}</td><td>{row.professionalType || '—'}</td><td>{row.attempt}</td><td><div className="top-actions">{row.evidence.map((item, index) => <button className="secondary" type="button" disabled={Boolean(busy)} onClick={() => void openEvidence(row, item, index)} key={`${row.uid}-${index}`}>Xem {String(item.label ?? item.type ?? 'minh chứng')}</button>)}</div></td><td><div className="top-actions"><button disabled={Boolean(busy)} onClick={() => void decide(row, 'verified')}>Phê duyệt</button><button className="secondary" disabled={Boolean(busy)} onClick={() => void decide(row, 'rejected')}>Từ chối</button></div></td></tr>)}
     </tbody></table></div>
   </section>;
 }
