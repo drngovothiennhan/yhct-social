@@ -87,6 +87,7 @@ jobs:
           vercel project update yhct-social \
             --framework nextjs \
             --auto-detect output-directory \
+            --yes \
             --scope hiu-yhct \
             --token="$VERCEL_TOKEN"
 
