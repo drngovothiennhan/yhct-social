@@ -1,0 +1,119 @@
+name: Import Firestore Migration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/migrate-firestore.yml'
+      - 'scripts/import-firestore.mjs'
+      - 'lib/domain/migration.ts'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: yhct-firestore-migration-production
+  cancel-in-progress: false
+
+jobs:
+  validate-import-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      GOOGLE_CLOUD_PROJECT: yhct-social-260902-42a4
+      GCLOUD_PROJECT: yhct-social-260902-42a4
+      MIGRATION_DRIVE_FILE_ID: 1V5XjSFAY6vCm8_aT4xyPhJFru0-vw2YG
+      MIGRATION_SHA256: a556d236407af76ac0c431dfa7ffd78dbea711573381656944b9ea8ad447856e
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate application and migration tests
+        run: npm run check
+
+      - name: Authenticate with Google Cloud OIDC
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: yhct-social-260902-42a4
+          workload_identity_provider: projects/244889451934/locations/global/workloadIdentityPools/github-yhct-social/providers/github-main
+          service_account: yhct-github-deploy@yhct-social-260902-42a4.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+          token_format: access_token
+          access_token_scopes: |
+            https://www.googleapis.com/auth/cloud-platform
+            https://www.googleapis.com/auth/drive.readonly
+
+      - name: Download private migration package from Drive
+        env:
+          DRIVE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$DRIVE_ACCESS_TOKEN"
+          curl --fail --silent --show-error --location \
+            --header "Authorization: Bearer $DRIVE_ACCESS_TOKEN" \
+            "https://www.googleapis.com/drive/v3/files/${MIGRATION_DRIVE_FILE_ID}?alt=media" \
+            --output /tmp/yhct-migration.zip
+          printf '%s  %s\n' "$MIGRATION_SHA256" /tmp/yhct-migration.zip | sha256sum --check --status
+          echo 'MIGRATION_PACKAGE=PASS'
+
+      - name: Extract migration package privately
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf /tmp/yhct-migration
+          mkdir -p /tmp/yhct-migration
+          unzip -q /tmp/yhct-migration.zip -d /tmp/yhct-migration
+          test -f /tmp/yhct-migration/members.sanitized.json
+          test -f /tmp/yhct-migration/activities.json
+          echo 'MIGRATION_EXTRACT=PASS'
+
+      - name: Validate real migration bundle
+        run: node --experimental-strip-types scripts/import-firestore.mjs --dir /tmp/yhct-migration --dry-run
+
+      - name: Import sanitized migration into Firestore
+        run: node --experimental-strip-types scripts/import-firestore.mjs --dir /tmp/yhct-migration
+
+      - name: Verify imported Firestore counts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          node --input-type=module <<'NODE'
+          import { applicationDefault, initializeApp } from 'firebase-admin/app';
+          import { getFirestore } from 'firebase-admin/firestore';
+
+          const projectId = 'yhct-social-260902-42a4';
+          initializeApp({ credential: applicationDefault(), projectId });
+          const db = getFirestore();
+          const [membersSnapshot, activitiesSnapshot] = await Promise.all([
+            db.collection('migrationMembers').count().get(),
+            db.collection('activities').count().get(),
+          ]);
+          const members = membersSnapshot.data().count;
+          const activities = activitiesSnapshot.data().count;
+          if (members !== 159 || activities !== 2) {
+            console.error(`MIGRATION_VERIFY=FAIL members=${members} activities=${activities}`);
+            process.exit(1);
+          }
+          console.log(`MIGRATION_VERIFY=PASS members=${members} activities=${activities}`);
+          NODE
+
+      - name: Remove private migration files
+        if: always()
+        shell: bash
+        run: rm -rf /tmp/yhct-migration /tmp/yhct-migration.zip
