@@ -1,0 +1,116 @@
+name: Provision Beta 2.0 Members
+
+on:
+  push:
+    branches: [beta/2.0-module-a]
+    paths:
+      - '.github/workflows/provision-beta2-members.yml'
+      - 'scripts/provision-members.mjs'
+      - 'lib/domain/provisioning.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: yhct-beta2-member-provisioning
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOOGLE_CLOUD_PROJECT: yhct-social-260902-42a4
+      GCLOUD_PROJECT: yhct-social-260902-42a4
+      ROSTER_DRIVE_FILE_ID: 1UDdtpIunapN2bl1A1F6q3yW4lxg5akm1
+      ACTIVATION_DRIVE_FILE_ID: 1XiqgnrKhT6wP814kDBPcAjXPP_-cbhkk
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate provisioning contracts
+        run: npm run check
+
+      - name: Authenticate with Google Cloud OIDC
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: yhct-social-260902-42a4
+          workload_identity_provider: projects/244889451934/locations/global/workloadIdentityPools/github-yhct-social/providers/github-main
+          service_account: yhct-github-deploy@yhct-social-260902-42a4.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+          token_format: access_token
+          access_token_scopes: |
+            https://www.googleapis.com/auth/cloud-platform
+            https://www.googleapis.com/auth/drive
+
+      - name: Download private roster from Drive
+        env:
+          DRIVE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --location \
+            --header "Authorization: Bearer $DRIVE_ACCESS_TOKEN" \
+            "https://www.googleapis.com/drive/v3/files/${ROSTER_DRIVE_FILE_ID}?alt=media" \
+            --output /tmp/yhct-beta2-roster.csv
+          test -s /tmp/yhct-beta2-roster.csv
+          echo 'BETA2_ROSTER_DOWNLOAD=PASS'
+
+      - name: Validate real roster dry-run
+        run: node --experimental-strip-types scripts/provision-members.mjs --file /tmp/yhct-beta2-roster.csv --dry-run
+
+      - name: Provision Firebase Auth and Firestore access records
+        run: node --experimental-strip-types scripts/provision-members.mjs --file /tmp/yhct-beta2-roster.csv --activation-output /tmp/yhct-beta2-activation.csv
+
+      - name: Store activation credentials in private Drive file
+        env:
+          DRIVE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -s /tmp/yhct-beta2-activation.csv
+          curl --fail --silent --show-error --location \
+            --request PATCH \
+            --header "Authorization: Bearer $DRIVE_ACCESS_TOKEN" \
+            --header 'Content-Type: text/csv; charset=utf-8' \
+            --data-binary @/tmp/yhct-beta2-activation.csv \
+            "https://www.googleapis.com/upload/drive/v3/files/${ACTIVATION_DRIVE_FILE_ID}?uploadType=media" \
+            --output /tmp/drive-update.json
+          echo 'BETA2_ACTIVATION_PRIVATE_STORE=PASS'
+
+      - name: Verify admin account claims
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          node --input-type=module <<'NODE'
+          import { applicationDefault, initializeApp } from 'firebase-admin/app';
+          import { getAuth } from 'firebase-admin/auth';
+          const app = initializeApp({ credential: applicationDefault(), projectId: 'yhct-social-260902-42a4' });
+          const auth = getAuth(app);
+          const user = await auth.getUserByEmail('2413120084@members.yhct.hiu.vn');
+          const claims = user.customClaims ?? {};
+          if (claims.role !== 'admin' || claims.clubMember !== true || claims.mustChangePassword !== true || user.disabled) {
+            console.error('BETA2_ADMIN_VERIFY=FAIL');
+            process.exit(1);
+          }
+          console.log('BETA2_ADMIN_VERIFY=PASS');
+          NODE
+
+      - name: Remove private files
+        if: always()
+        shell: bash
+        run: rm -f /tmp/yhct-beta2-roster.csv /tmp/yhct-beta2-activation.csv /tmp/drive-update.json
