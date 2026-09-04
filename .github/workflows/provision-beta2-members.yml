@@ -57,6 +57,30 @@ jobs:
             https://www.googleapis.com/auth/cloud-platform
             https://www.googleapis.com/auth/drive
 
+      - name: Diagnose Firebase API permissions
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          firestore_status="$(curl --silent --output /tmp/firestore-probe.json --write-out '%{http_code}' \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            "https://firestore.googleapis.com/v1/projects/${GOOGLE_CLOUD_PROJECT}/databases/(default)/documents/clubProvisioning/__permission_probe__")"
+          if [[ "$firestore_status" != "200" && "$firestore_status" != "404" ]]; then
+            echo "FIRESTORE_PERMISSION_PROBE=FAIL status=$firestore_status"
+            exit 21
+          fi
+          echo 'FIRESTORE_PERMISSION_PROBE=PASS'
+
+          auth_status="$(curl --silent --output /tmp/firebase-auth-probe.json --write-out '%{http_code}' \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            "https://identitytoolkit.googleapis.com/admin/v2/projects/${GOOGLE_CLOUD_PROJECT}/config")"
+          if [[ "$auth_status" != "200" ]]; then
+            echo "FIREBASE_AUTH_PERMISSION_PROBE=FAIL status=$auth_status"
+            exit 22
+          fi
+          echo 'FIREBASE_AUTH_PERMISSION_PROBE=PASS'
+
       - name: Download private roster from Drive
         env:
           DRIVE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
@@ -113,4 +137,4 @@ jobs:
       - name: Remove private files
         if: always()
         shell: bash
-        run: rm -f /tmp/yhct-beta2-roster.csv /tmp/yhct-beta2-activation.csv /tmp/drive-update.json
+        run: rm -f /tmp/yhct-beta2-roster.csv /tmp/yhct-beta2-activation.csv /tmp/drive-update.json /tmp/firestore-probe.json /tmp/firebase-auth-probe.json
