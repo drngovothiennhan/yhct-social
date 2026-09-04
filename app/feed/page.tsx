@@ -1,8 +1,6 @@
-'use client';
-
 import { PortalShell } from '@/components/portal/portal-shell';
 import { SocialFeed } from '@/components/portal/social-feed';
 
-export function AppShell() {
+export default function FeedPage() {
   return <PortalShell><SocialFeed /></PortalShell>;
 }
