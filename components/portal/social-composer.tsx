@@ -46,6 +46,7 @@ export function SocialComposer({ onPublished }: { onPublished?: () => void }) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!profile || !claims) return;
     setBusy(true);
     setMessage(null);
     setProgress(0);
