@@ -54,14 +54,14 @@ jobs:
           fi
 
       - name: Link ACC directory
-        run: vercel link admin-portal --yes --project "$ACC_PROJECT" --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN"
+        run: vercel link --cwd admin-portal --yes --project "$ACC_PROJECT" --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN"
 
       - name: Deploy ACC beta production
         id: deploy
         shell: bash
         run: |
           set -Eeuo pipefail
-          url="$(vercel deploy admin-portal --prod --yes \
+          url="$(vercel deploy --cwd admin-portal --prod --yes \
             --scope "$VERCEL_TEAM" \
             --token="$VERCEL_TOKEN" \
             --build-env NEXT_PUBLIC_FIREBASE_API_KEY='AIzaSyC6x8KsAFyOtAnm7VFl6_RWTp6Fr9IJl_I' \
