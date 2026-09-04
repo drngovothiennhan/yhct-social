@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { ClubRole } from './rbac.ts';
 import { roleRank } from './rbac.ts';
 
@@ -164,6 +164,18 @@ export function buildProvisioningPlan(members: ProvisioningMember[]): Provisioni
     role: member.role,
     sourceConflict: member.sourceConflict,
   }));
+}
+
+export function buildProvisioningSourceHash(member: ProvisioningPlanRow): string {
+  const canonical = JSON.stringify({
+    memberCode: normalizeMemberCode(member.memberCode),
+    syntheticEmail: member.syntheticEmail.trim().toLowerCase(),
+    displayName: member.displayName.trim(),
+    faculty: member.faculty.trim(),
+    title: member.title.trim(),
+    role: member.role,
+  });
+  return createHash('sha256').update(canonical, 'utf8').digest('hex');
 }
 
 export function generateActivationPassword(): string {
