@@ -9,8 +9,10 @@ import {
 } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 
 const PROJECT_ID = 'yhct-social-260902-42a4';
+const DEFAULT_STORAGE_BUCKET = `${PROJECT_ID}.firebasestorage.app`;
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -50,7 +52,11 @@ function resolveCredential(): Credential {
 }
 
 export function getAdminApp(): App {
-  return getApps()[0] ?? initializeApp({ projectId: PROJECT_ID, credential: resolveCredential() });
+  return getApps()[0] ?? initializeApp({
+    projectId: PROJECT_ID,
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET ?? DEFAULT_STORAGE_BUCKET,
+    credential: resolveCredential(),
+  });
 }
 
 export function adminAuth() {
@@ -59,4 +65,8 @@ export function adminAuth() {
 
 export function adminDb() {
   return getFirestore(getAdminApp());
+}
+
+export function adminBucket() {
+  return getStorage(getAdminApp()).bucket(process.env.FIREBASE_STORAGE_BUCKET ?? DEFAULT_STORAGE_BUCKET);
 }
