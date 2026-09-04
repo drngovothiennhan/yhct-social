@@ -6,5 +6,5 @@ const source = readFileSync(new URL('../.github/workflows/provision-beta2-member
 
 test('idempotent provisioning never overwrites private activation credentials with a header-only CSV', () => {
   assert.match(source, /wc -l/);
-  assert.match(source, /ACTIVATION_PRIVATE_STORE=SKIP_NO_NEW_CREDENTIALS/);
+  assert.match(source, /ACTIVATION_PRIVATE_STORE=SKIP no_new_credentials/);
 });
