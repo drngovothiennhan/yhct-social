@@ -1,4 +1,4 @@
-import { hasMinimumAccRole, normalizeAccRole } from './rbac';
+import { hasMinimumAccRole, normalizeAccRole } from './rbac.ts';
 
 export function canModerate(role: unknown): boolean {
   return hasMinimumAccRole(role, 'mod');
