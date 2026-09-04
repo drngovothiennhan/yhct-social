@@ -21,6 +21,7 @@ export function SocialFeed() {
 
   const loadFirst = useCallback(async () => {
     if (!user || !claims?.clubMember) return;
+    await Promise.resolve();
     setLoading(true);
     setError(null);
     try {
@@ -35,7 +36,9 @@ export function SocialFeed() {
     }
   }, [filter, user, claims?.clubMember]);
 
-  useEffect(() => { void loadFirst(); }, [loadFirst, refreshKey]);
+  useEffect(() => {
+    void loadFirst();
+  }, [loadFirst, refreshKey]);
 
   async function loadMore() {
     if (!cursor || loading || !hasMore) return;
