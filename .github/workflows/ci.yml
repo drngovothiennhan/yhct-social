@@ -3,13 +3,13 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, release/v1.0]
 
 permissions:
   contents: read
 
 jobs:
-  validate:
+  validate-public:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -25,6 +25,34 @@ jobs:
       - name: Test, typecheck and lint
         run: npm run check
       - name: Build Next.js production bundle
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-api-key
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-project
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ci.firebasestorage.app
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '1234567890'
+          NEXT_PUBLIC_FIREBASE_APP_ID: '1:1234567890:web:ci'
+        run: npm run build
+
+  validate-acc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: admin-portal
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+      - name: Install ACC dependencies
+        run: npm install --no-audit --no-fund
+      - name: Test, typecheck and lint ACC
+        run: npm run check
+      - name: Build ACC production bundle
         env:
           NEXT_PUBLIC_FIREBASE_API_KEY: ci-api-key
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci.firebaseapp.com

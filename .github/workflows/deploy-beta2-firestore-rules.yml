@@ -1,0 +1,35 @@
+name: Validate Beta 2.0 Firebase Policy
+
+on:
+  push:
+    branches: [release/v1.0]
+    paths:
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
+      - 'storage.rules'
+      - 'firebase.json'
+      - '.github/workflows/deploy-beta2-firestore-rules.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+      - run: npm install --no-audit --no-fund
+      - name: Validate release branch and Firebase policy contracts
+        run: npm run check
+      - name: Confirm production deployment boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo 'BETA2_FIREBASE_POLICY_VALIDATION=PASS'
+          echo 'Production Firebase deployment remains delegated to .github/workflows/deploy-firebase-rules.yml on main.'
