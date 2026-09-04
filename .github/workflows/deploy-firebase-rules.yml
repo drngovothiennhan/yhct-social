@@ -114,23 +114,44 @@ jobs:
           npx firebase-tools@15.29.0 projects:list --json --non-interactive --token "$FIREBASE_TOKEN" > /tmp/firebase-projects.json
           node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/firebase-projects.json','utf8'));const rows=x.result||[];if(!rows.some(p=>p.projectId==='yhct-social-260902-42a4')){console.error('FIREBASE_PROJECT_ACCESS=DENIED');process.exit(1)}console.log('FIREBASE_PROJECT_ACCESS=PASS')"
 
-      - name: Deploy Firestore and Storage security configuration with ADC
+      - name: Deploy Firestore rules and indexes with ADC
         if: steps.auth-mode.outputs.mode == 'wif' || steps.auth-mode.outputs.mode == 'service-account-json'
         shell: bash
         run: |
           set -Eeuo pipefail
           npx firebase-tools@15.29.0 deploy \
             --project yhct-social-260902-42a4 \
-            --only firestore:rules,firestore:indexes,storage \
+            --only firestore:rules,firestore:indexes \
             --non-interactive
 
-      - name: Deploy Firestore and Storage security configuration with legacy token
+      - name: Deploy Storage rules with ADC
+        if: steps.auth-mode.outputs.mode == 'wif' || steps.auth-mode.outputs.mode == 'service-account-json'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npx firebase-tools@15.29.0 deploy \
+            --project yhct-social-260902-42a4 \
+            --only storage \
+            --non-interactive
+
+      - name: Deploy Firestore rules and indexes with legacy token
         if: steps.auth-mode.outputs.mode == 'firebase-token'
         shell: bash
         run: |
           set -Eeuo pipefail
           npx firebase-tools@15.29.0 deploy \
             --project yhct-social-260902-42a4 \
-            --only firestore:rules,firestore:indexes,storage \
+            --only firestore:rules,firestore:indexes \
+            --non-interactive \
+            --token "$FIREBASE_TOKEN"
+
+      - name: Deploy Storage rules with legacy token
+        if: steps.auth-mode.outputs.mode == 'firebase-token'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npx firebase-tools@15.29.0 deploy \
+            --project yhct-social-260902-42a4 \
+            --only storage \
             --non-interactive \
             --token "$FIREBASE_TOKEN"
