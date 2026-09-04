@@ -37,19 +37,24 @@ export function MemberDirectoryScreen() {
   const [term, setTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const canBrowse = Boolean(user && claims?.clubMember);
 
   useEffect(() => {
-    if (!user || !claims?.clubMember) { setLoading(false); return; }
+    if (!canBrowse) return;
     let active = true;
-    void loadMemberDirectory().then((result) => { if (active) setMembers(result); }).catch((next: unknown) => {
+    void loadMemberDirectory().then((result) => {
+      if (active) setMembers(result);
+    }).catch((next: unknown) => {
       if (active) setError(next instanceof Error ? next.message : 'Không thể tải danh sách thành viên.');
-    }).finally(() => { if (active) setLoading(false); });
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
     return () => { active = false; };
-  }, [user, claims?.clubMember]);
+  }, [canBrowse]);
 
   const visible = useMemo(() => filterMemberDirectory(members, term), [members, term]);
 
-  if (!user || !claims?.clubMember) return <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">Danh bạ chỉ dành cho thành viên CLB đã xác thực.</section>;
+  if (!canBrowse) return <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">Danh bạ chỉ dành cho thành viên CLB đã xác thực.</section>;
 
   return (
     <div className="space-y-4">
@@ -80,17 +85,18 @@ export function MemberProfileScreen({ uid }: { uid: string }) {
   const [member, setMember] = useState<UserProfile | null>(null);
   const [posts, setPosts] = useState<SocialPostRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const canBrowse = Boolean(user && claims?.clubMember);
 
   useEffect(() => {
-    if (!user || !claims?.clubMember) return;
+    if (!canBrowse) return;
     let active = true;
     void Promise.all([loadMemberProfile(uid), loadFeedPage({ authorId: uid, pageSize: 10 })])
       .then(([profile, page]) => { if (active) { setMember(profile); setPosts(page.posts); } })
       .catch((next: unknown) => { if (active) setError(next instanceof Error ? next.message : 'Không thể tải hồ sơ.'); });
     return () => { active = false; };
-  }, [uid, user, claims?.clubMember]);
+  }, [uid, canBrowse]);
 
-  if (!user || !claims?.clubMember) return <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">Hồ sơ thành viên yêu cầu đăng nhập CLB.</section>;
+  if (!canBrowse) return <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">Hồ sơ thành viên yêu cầu đăng nhập CLB.</section>;
   if (error) return <p className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>;
   if (!member) return <p className="text-sm text-slate-500">Đang tải hồ sơ…</p>;
 
@@ -111,30 +117,20 @@ export function MemberProfileScreen({ uid }: { uid: string }) {
   );
 }
 
-export function ProfileScreen() {
-  const { user, profile, refreshProfile } = useAuth();
-  const [displayName, setDisplayName] = useState('');
-  const [photoURL, setPhotoURL] = useState('');
-  const [bio, setBio] = useState('');
-  const [specialties, setSpecialties] = useState('');
+function ProfileEditor({ profile, userUid, refreshProfile }: { profile: UserProfile; userUid: string; refreshProfile: () => Promise<void> }) {
+  const [displayName, setDisplayName] = useState(profile.displayName);
+  const [photoURL, setPhotoURL] = useState(profile.photoURL);
+  const [bio, setBio] = useState(profile.bio);
+  const [specialties, setSpecialties] = useState(profile.specialties.join(', '));
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!profile) return;
-    setDisplayName(profile.displayName);
-    setPhotoURL(profile.photoURL);
-    setBio(profile.bio);
-    setSpecialties(profile.specialties.join(', '));
-  }, [profile]);
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!user) return;
     setBusy(true);
     setMessage(null);
     try {
-      await updateSelfProfile(user.uid, {
+      await updateSelfProfile(userUid, {
         displayName,
         photoURL,
         bio,
@@ -148,8 +144,6 @@ export function ProfileScreen() {
       setBusy(false);
     }
   }
-
-  if (!user || !profile) return <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">Đăng nhập để chỉnh sửa hồ sơ.</section>;
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -165,4 +159,12 @@ export function ProfileScreen() {
       </form>
     </section>
   );
+}
+
+export function ProfileScreen() {
+  const { user, profile, refreshProfile } = useAuth();
+  if (!user || !profile) return <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">Đăng nhập để chỉnh sửa hồ sơ.</section>;
+
+  const version = profile.updatedAt?.toMillis?.() ?? 0;
+  return <ProfileEditor key={`${profile.uid}-${version}`} profile={profile} userUid={user.uid} refreshProfile={refreshProfile} />;
 }
