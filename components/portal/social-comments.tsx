@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Send, Trash2 } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
+import { ReportDialog } from '@/components/portal/report-dialog';
 import {
   createPostComment,
   softDeletePostComment,
@@ -44,8 +45,13 @@ export function SocialComments({ postId }: { postId: string }) {
               <p className="text-xs font-bold text-slate-800">{comment.authorNameSnapshot}</p>
               <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{comment.status === 'deleted' ? 'Bình luận đã được xóa.' : comment.text}</p>
             </div>
-            {comment.status !== 'deleted' && user?.uid === comment.authorId ? (
-              <button type="button" aria-label="Xóa bình luận" onClick={() => void softDeletePostComment(postId, comment.id)} className="text-slate-400 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>
+            {comment.status !== 'deleted' ? (
+              <div className="flex items-start gap-1">
+                {user?.uid !== comment.authorId ? <ReportDialog targetType="comment" postId={postId} commentId={comment.id} /> : null}
+                {user?.uid === comment.authorId ? (
+                  <button type="button" aria-label="Xóa bình luận" onClick={() => void softDeletePostComment(postId, comment.id)} className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ))}

@@ -45,5 +45,5 @@ export function canEditClubTitle(actor: unknown, target: unknown): boolean {
 }
 
 export function canManageVerification(actor: unknown): boolean {
-  return hasMinimumAccRole(actor, 'mod');
+  return hasMinimumAccRole(actor, 'super_mod');
 }
