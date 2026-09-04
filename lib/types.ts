@@ -1,7 +1,8 @@
 import type { Timestamp } from 'firebase/firestore';
+import type { ClubRole } from '@/lib/domain/rbac';
 
 export type AccountType = 'member' | 'practitioner' | 'student' | 'patient';
-export type UserRole = 'member' | 'moderator' | 'admin';
+export type UserRole = ClubRole | 'moderator';
 export type VerificationStatus =
   | 'not_required'
   | 'unsubmitted'
