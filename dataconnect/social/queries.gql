@@ -1,0 +1,92 @@
+query MyProfile @auth(level: USER) {
+  user(key: {uid_expr: "auth.uid"}) {
+    uid
+    mssv
+    displayName
+    role
+    status
+    title
+    department
+    createdAt
+    updatedAt
+  }
+}
+
+query ListFeed($limit: Int = 20, $offset: Int = 0) @auth(level: USER) {
+  posts(
+    where: {status: {eq: ACTIVE}}
+    orderBy: [{createdAt: DESC}]
+    limit: $limit
+    offset: $offset
+  ) {
+    id
+    body
+    visibility
+    status
+    createdAt
+    updatedAt
+    author {
+      uid
+      mssv
+      displayName
+      role
+      title
+      department
+    }
+  }
+}
+
+query GetPostDetails($postId: UUID!) @auth(level: USER) {
+  post(id: $postId) {
+    id
+    body
+    visibility
+    status
+    createdAt
+    updatedAt
+    author {
+      uid
+      mssv
+      displayName
+      role
+      title
+      department
+    }
+  }
+  comments(
+    where: {postId: {eq: $postId}, status: {eq: ACTIVE}}
+    orderBy: [{createdAt: ASC}]
+    limit: 200
+  ) {
+    id
+    body
+    status
+    createdAt
+    updatedAt
+    author {
+      uid
+      mssv
+      displayName
+      role
+    }
+  }
+  reactions(where: {postId: {eq: $postId}}, limit: 500) {
+    userUid
+    type
+    createdAt
+  }
+  medias(
+    where: {postId: {eq: $postId}, status: {eq: READY}}
+    orderBy: [{createdAt: ASC}]
+    limit: 16
+  ) {
+    id
+    kind
+    storagePath
+    mimeType
+    sizeBytes
+    sha256
+    status
+    createdAt
+  }
+}
