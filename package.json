@@ -16,6 +16,8 @@
     "firebase:deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes,storage",
     "migration:dry-run": "node --experimental-strip-types scripts/import-firestore.mjs --dry-run",
     "migration:import": "node --experimental-strip-types scripts/import-firestore.mjs",
+    "provision:dry-run": "node --experimental-strip-types scripts/provision-members.mjs --dry-run",
+    "provision:import": "node --experimental-strip-types scripts/provision-members.mjs",
     "android:add": "cap add android",
     "android:sync": "cap sync android",
     "test": "node --experimental-strip-types --test tests-node/*.test.mjs",
