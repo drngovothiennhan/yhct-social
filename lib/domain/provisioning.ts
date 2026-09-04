@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import type { ClubRole } from './rbac';
-import { roleRank } from './rbac';
+import type { ClubRole } from './rbac.ts';
+import { roleRank } from './rbac.ts';
 
 export const MEMBER_EMAIL_DOMAIN = 'members.yhct.hiu.vn';
 
