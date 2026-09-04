@@ -38,7 +38,18 @@ export function AuditTable({ user, role }: { user: User; role: string }) {
     }
   }
 
-  useEffect(() => { void load(true); }, [role, user]);
+  useEffect(() => {
+    if (!canReadFullAudit(role)) return;
+    let active = true;
+    void accApi<{ events: AuditRow[]; nextCursor: string | null }>(user, '/api/audit?limit=30')
+      .then((body) => {
+        if (!active) return;
+        setEvents(body.events);
+        setCursor(body.nextCursor);
+      })
+      .catch(() => { if (active) setMessage('Không tải được nhật ký quản trị.'); });
+    return () => { active = false; };
+  }, [role, user]);
 
   if (!canReadFullAudit(role)) {
     return <section className="panel"><h2>Nhật ký quản trị</h2><p className="muted">Chỉ Admin có quyền duyệt toàn bộ nhật ký quản trị.</p></section>;
