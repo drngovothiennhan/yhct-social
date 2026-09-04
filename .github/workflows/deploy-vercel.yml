@@ -21,14 +21,14 @@ jobs:
     timeout-minutes: 20
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
-      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
-      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
-      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
-      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
-      NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+      VERCEL_ORG_ID: team_zMTBj85c4Dh5QoDNIjWqQRTg
+      VERCEL_PROJECT_ID: prj_dMSw8bGPeiLwOMDytMpobm8bjMGZ
+      NEXT_PUBLIC_FIREBASE_API_KEY: AIzaSyC6x8KsAFyOtAnm7VFl6_RWTp6Fr9IJl_I
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: yhct-social-260902-42a4.firebaseapp.com
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: yhct-social-260902-42a4
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: yhct-social-260902-42a4.firebasestorage.app
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '244889451934'
+      NEXT_PUBLIC_FIREBASE_APP_ID: 1:244889451934:web:68766e1db11f532caeaa8f
 
     steps:
       - name: Checkout
@@ -40,7 +40,7 @@ jobs:
           node-version: '22.16.0'
           package-manager-cache: false
 
-      - name: Validate required deployment secrets
+      - name: Validate required deployment configuration
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -69,7 +69,7 @@ jobs:
             echo 'VERCEL_DEPLOY=BLOCKED reason=FIREBASE_PROJECT_ID_MISMATCH'
             exit 1
           fi
-          echo 'VERCEL_DEPLOY_SECRETS=PASS'
+          echo 'VERCEL_DEPLOY_CONFIG=PASS'
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
