@@ -1,0 +1,78 @@
+name: YHCT VNext SQL Connect Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy-sql-connect.yml'
+      - '.firebaserc'
+      - 'firebase.json'
+      - 'dataconnect/**'
+      - 'infra/ci_sql_connect_deploy.sh'
+      - 'tests/**'
+      - '.gitignore'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: yhct-vnext-sql-connect-production
+  cancel-in-progress: false
+
+jobs:
+  validate-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+      CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+      GOOGLE_CLOUD_PROJECT: yhct-social-260902-42a4
+      GCLOUD_PROJECT: yhct-social-260902-42a4
+      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate repository contracts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+          bash -n infra/ci_sql_connect_deploy.sh
+
+      - name: Install pinned Firebase CLI
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npm install --global firebase-tools@15.28.2
+          firebase --version
+
+      - name: Validate OIDC repository variables
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${{ vars.GCP_WIF_PROVIDER }}" || { echo 'SQL_CONNECT_GITHUB_DEPLOY=BLOCKED reason=GCP_WIF_PROVIDER_MISSING'; exit 1; }
+          test -n "${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}" || { echo 'SQL_CONNECT_GITHUB_DEPLOY=BLOCKED reason=GCP_DEPLOY_SERVICE_ACCOUNT_MISSING'; exit 1; }
+
+      - name: Authenticate to Google Cloud with GitHub OIDC
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: yhct-social-260902-42a4
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: yhct-social-260902-42a4
+          version: '>= 363.0.0'
+
+      - name: Deploy SQL Connect core
+        shell: bash
+        run: ./infra/ci_sql_connect_deploy.sh
