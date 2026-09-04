@@ -17,6 +17,14 @@ type Member = {
 
 type Claims = { role?: unknown; clubMember?: unknown; mustChangePassword?: unknown };
 
+function selectClaims(source: Record<string, unknown>): Claims {
+  return {
+    role: source.role,
+    clubMember: source.clubMember,
+    mustChangePassword: source.mustChangePassword,
+  };
+}
+
 async function api(user: User, path: string, init?: RequestInit) {
   const token = await user.getIdToken();
   const response = await fetch(path, {
@@ -51,7 +59,7 @@ export default function Dashboard() {
       return;
     }
     const result = await nextUser.getIdTokenResult(true);
-    setClaims(result.claims);
+    setClaims(selectClaims(result.claims as Record<string, unknown>));
   }), []);
 
   const mustChangePassword = claims?.mustChangePassword === true;
@@ -82,7 +90,7 @@ export default function Dashboard() {
         body: JSON.stringify({ password: replacementPassword }),
       });
       const refreshed = await user.getIdTokenResult(true);
-      setClaims(refreshed.claims);
+      setClaims(selectClaims(refreshed.claims as Record<string, unknown>));
       setReplacementPassword('');
       setMessage('Đã đổi mật khẩu. Phiên quản trị đã được mở.');
     } catch (error) {
