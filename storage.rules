@@ -12,7 +12,14 @@ service firebase.storage {
 
     function isModerator() {
       return signedIn()
-        && currentUser().role in ['moderator', 'admin'];
+        && (request.auth.token.role in ['mod', 'super_mod', 'admin']
+          || currentUser().role in ['moderator', 'admin']);
+    }
+
+    function canUploadSocial() {
+      return signedIn()
+        && request.auth.token.clubMember == true
+        && request.auth.token.mustChangePassword != true;
     }
 
     function isImage() {
@@ -39,6 +46,7 @@ service firebase.storage {
       allow delete: if (signedIn() && request.auth.uid == uid) || isModerator();
     }
 
+    // Legacy media path remains during the v1 -> Module B migration window.
     match /post-media/{uid}/{postId}/{fileName} {
       allow read: if true;
       allow create, update: if signedIn()
@@ -46,6 +54,15 @@ service firebase.storage {
         && isImage()
         && request.resource.size <= 10 * 1024 * 1024;
       allow delete: if (signedIn() && request.auth.uid == uid) || isModerator();
+    }
+
+    match /social/posts/{uid}/{postId}/{fileName} {
+      allow read: if true;
+      allow create, update: if canUploadSocial()
+        && request.auth.uid == uid
+        && isImage()
+        && request.resource.size <= 10 * 1024 * 1024;
+      allow delete: if (canUploadSocial() && request.auth.uid == uid) || isModerator();
     }
 
     match /certificates/{uid}/{fileName} {
