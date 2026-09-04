@@ -62,7 +62,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           npx firebase-tools@15.29.0 projects:list --json --non-interactive > /tmp/firebase-projects.json
-          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/firebase-projects.json','utf8'));const rows=x.result||[];if(!rows.some(p=>p.projectId==='yhct-social-260902-42a4')){console.error('FIREBASE_PROJECT_ACCESS=DENIED');process.exit(1)}console.log('FIREBASE_PROJECT_ACCESS=PASS')"
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/firebase-projects.json','utf8'));const rows=x.result||[];if(!rows.some(p=>p.projectId==='yhct-social-260902-42a4')){console.error('FIREBASE_PROJECT_ACCESS=DENIED');process.exit(1)}process.stdout.write('FIREBASE_PROJECT_ACCESS=PASS\n')"
 
       - name: Export Firebase Web config
         shell: bash
@@ -71,7 +71,7 @@ jobs:
           npx firebase-tools@15.29.0 apps:list --project yhct-social-260902-42a4 --json --non-interactive > /tmp/firebase-apps.json
           APP_ID="$(node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/firebase-apps.json','utf8'));const rows=x.result||[];const app=rows.find(a=>String(a.platform||'').toUpperCase()==='WEB');if(!app){process.exit(2)}process.stdout.write(app.appId)")"
           npx firebase-tools@15.29.0 apps:sdkconfig WEB "$APP_ID" --project yhct-social-260902-42a4 --json --non-interactive > /tmp/firebase-sdk.json
-          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/firebase-sdk.json','utf8'));const c=x.result&&x.result.sdkConfig;if(!c||c.projectId!=='yhct-social-260902-42a4'){console.error('FIREBASE_WEB_CONFIG=INVALID');process.exit(1)}console.log('FIREBASE_WEB_CONFIG=PASS')"
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/firebase-sdk.json','utf8'));const c=x.result&&x.result.sdkConfig;if(!c||c.projectId!=='yhct-social-260902-42a4'){console.error('FIREBASE_WEB_CONFIG=INVALID');process.exit(1)}process.stdout.write('FIREBASE_WEB_CONFIG=PASS\n')"
 
       - name: Deploy Storage rules
         shell: bash
