@@ -50,6 +50,7 @@ export default function Dashboard() {
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
 
   useEffect(() => onAuthStateChanged(auth, async (nextUser) => {
     setUser(nextUser);
@@ -106,8 +107,69 @@ export default function Dashboard() {
     try {
       const body = await api(user, `/api/members?q=${encodeURIComponent(query)}`) as { members: Member[] };
       setMembers(body.members);
+      if (role === 'admin') {
+        const system = await api(user, '/api/system/maintenance') as { maintenanceMode?: boolean };
+        setMaintenanceMode(system.maintenanceMode === true);
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Không tải được thành viên.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function patchMember(uid: string, payload: Record<string, unknown>) {
+    if (!user) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      await api(user, `/api/members/${uid}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      await loadMembers();
+      setMessage('Đã cập nhật thành viên.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Không thể cập nhật thành viên.');
+      setBusy(false);
+    }
+  }
+
+  async function updateRole(member: Member) {
+    const nextRole = window.prompt('Role mới: member / mod / super_mod / admin', member.role)?.trim();
+    if (!nextRole || !['member', 'mod', 'super_mod', 'admin'].includes(nextRole)) return;
+    await patchMember(member.uid, { action: 'role', role: nextRole });
+  }
+
+  async function updateTitle(member: Member) {
+    const title = window.prompt('Chức danh CLB', member.clubTitle)?.trim();
+    if (title === undefined) return;
+    await patchMember(member.uid, { action: 'title', title });
+  }
+
+  async function toggleDisabled(member: Member) {
+    await patchMember(member.uid, { action: 'disabled', disabled: !member.disabled });
+  }
+
+  async function updateVerification(member: Member) {
+    const status = window.prompt('Trạng thái: pending / verified / rejected', member.verificationStatus)?.trim();
+    if (!status || !['pending', 'verified', 'rejected'].includes(status)) return;
+    await patchMember(member.uid, { action: 'verification', status });
+  }
+
+  async function toggleMaintenance() {
+    if (!user || role !== 'admin') return;
+    setBusy(true);
+    setMessage('');
+    try {
+      const body = await api(user, '/api/system/maintenance', {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: !maintenanceMode }),
+      }) as { maintenanceMode?: boolean };
+      setMaintenanceMode(body.maintenanceMode === true);
+      setMessage(body.maintenanceMode ? 'Đã bật chế độ bảo trì.' : 'Đã tắt chế độ bảo trì.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Không cập nhật được chế độ bảo trì.');
     } finally {
       setBusy(false);
     }
@@ -152,10 +214,11 @@ export default function Dashboard() {
   return <main className="admin-shell">
     <header className="topbar"><div><p className="eyebrow">ADMIN CONTROL CENTER</p><h1>YHCT Social Beta 2.0</h1></div><div className="top-actions"><span className="role-pill">{roleLabel}</span><button className="secondary" onClick={() => void signOut(auth)}>Đăng xuất</button></div></header>
     <section className="stats"><article><b>Backend</b><span>Firebase Admin</span></article><article><b>Quyền hiện tại</b><span>{roleLabel}</span></article><article><b>ACC</b><span>Độc lập Newsfeed</span></article></section>
+    {role === 'admin' ? <section className="panel"><div className="panel-head"><div><h2>Hệ thống</h2><p>Maintenance Mode: {maintenanceMode ? 'BẬT' : 'TẮT'}</p></div><button onClick={() => void toggleMaintenance()} disabled={busy}>{maintenanceMode ? 'Tắt bảo trì' : 'Bật bảo trì'}</button></div></section> : null}
     <section className="panel">
       <div className="panel-head"><div><h2>Thành viên CLB</h2><p>Tra cứu MSSV, chức danh, quyền và trạng thái.</p></div><div className="search"><input placeholder="Tên / MSSV / chức danh" value={query} onChange={(e) => setQuery(e.target.value)} /><button onClick={() => void loadMembers()} disabled={busy}>Tra cứu</button></div></div>
       {message ? <p className="notice">{message}</p> : null}
-      <div className="table-wrap"><table><thead><tr><th>Thành viên</th><th>MSSV</th><th>Role</th><th>Chức danh</th><th>Xác minh</th><th>Trạng thái</th></tr></thead><tbody>{members.map((member) => <tr key={member.uid}><td>{member.displayName}</td><td>{member.memberCode || '—'}</td><td>{member.role}</td><td>{member.clubTitle || '—'}</td><td>{member.verificationStatus}</td><td>{member.disabled ? 'Đã khóa' : 'Hoạt động'}</td></tr>)}</tbody></table></div>
+      <div className="table-wrap"><table><thead><tr><th>Thành viên</th><th>MSSV</th><th>Role</th><th>Chức danh</th><th>Xác minh</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{members.map((member) => <tr key={member.uid}><td>{member.displayName}</td><td>{member.memberCode || '—'}</td><td>{member.role}</td><td>{member.clubTitle || '—'}</td><td>{member.verificationStatus}</td><td>{member.disabled ? 'Đã khóa' : 'Hoạt động'}</td><td><div className="top-actions"><button className="secondary" onClick={() => void updateRole(member)}>Role</button><button className="secondary" onClick={() => void updateTitle(member)}>Chức danh</button><button className="secondary" onClick={() => void updateVerification(member)}>Xác minh</button><button className="secondary" onClick={() => void toggleDisabled(member)}>{member.disabled ? 'Mở khóa' : 'Khóa'}</button></div></td></tr>)}</tbody></table></div>
     </section>
   </main>;
 }
