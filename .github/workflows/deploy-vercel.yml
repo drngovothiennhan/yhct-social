@@ -80,6 +80,16 @@ jobs:
       - name: Install pinned Vercel CLI
         run: npm install --global vercel@59.10.0
 
+      - name: Normalize Vercel project settings for Next.js
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          vercel project update yhct-social \
+            --framework nextjs \
+            --auto-detect output-directory \
+            --scope hiu-yhct \
+            --token="$VERCEL_TOKEN"
+
       - name: Pull Vercel production settings
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
