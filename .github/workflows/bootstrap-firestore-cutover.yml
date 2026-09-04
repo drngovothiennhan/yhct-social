@@ -1,0 +1,54 @@
+name: Bootstrap Firestore Cutover
+
+on:
+  push:
+    branches: [firebase-baas-v1]
+    paths:
+      - '.bootstrap/**'
+      - '.github/workflows/bootstrap-firestore-cutover.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-firestore-cutover
+  cancel-in-progress: false
+
+jobs:
+  rebuild-source-tree:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: firebase-baas-v1
+          fetch-depth: 0
+
+      - name: Wait until all bundle parts exist
+        id: parts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          count=$(find .bootstrap -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Found $count/10 bundle parts"
+
+      - name: Reconstruct Firestore/BaaS source tree
+        if: steps.parts.outputs.count == '10'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat .bootstrap/part-* | base64 --decode > /tmp/yhct-social.zip
+          test "$(sha256sum /tmp/yhct-social.zip | awk '{print $1}')" = "4092f12fb5d003a7c30a356c3b4415d43c46bde17cdff02c25e8e46c06a43184"
+          rm -rf /tmp/cutover
+          mkdir -p /tmp/cutover
+          unzip -q /tmp/yhct-social.zip -d /tmp/cutover
+          test -f /tmp/cutover/yhct-social/package.json
+          git rm -r . ':!.git' || true
+          cp -a /tmp/cutover/yhct-social/. .
+          rm -rf .bootstrap
+          git add -A
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: cut over to Firestore BaaS architecture'
+          git push origin HEAD:firebase-baas-v1
