@@ -53,6 +53,9 @@ jobs:
             echo 'ACC_VERCEL_PROJECT=CREATED'
           fi
 
+      - name: Normalize ACC project for Next.js
+        run: vercel project update "$ACC_PROJECT" --framework nextjs --auto-detect output-directory --yes --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN"
+
       - name: Link ACC directory
         run: vercel link --cwd admin-portal --yes --project "$ACC_PROJECT" --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN"
 
