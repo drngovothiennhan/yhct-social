@@ -1,0 +1,95 @@
+name: Deploy Admin Control Center
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [beta/2.0-module-a]
+    paths:
+      - 'admin-portal/**'
+      - '.github/workflows/deploy-admin-portal.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yhct-acc-beta
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM: hiu-yhct
+      ACC_PROJECT: yhct-social-admin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+
+      - name: Validate Vercel token
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${VERCEL_TOKEN:-}" || { echo 'ACC_DEPLOY=BLOCKED missing=VERCEL_TOKEN'; exit 1; }
+
+      - name: Install pinned Vercel CLI
+        run: npm install --global vercel@59.10.0
+
+      - name: Ensure dedicated ACC project exists
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if vercel project inspect "$ACC_PROJECT" --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN" >/dev/null 2>&1; then
+            echo 'ACC_VERCEL_PROJECT=EXISTS'
+          else
+            vercel project add "$ACC_PROJECT" --yes --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN"
+            echo 'ACC_VERCEL_PROJECT=CREATED'
+          fi
+
+      - name: Link ACC directory
+        run: vercel link admin-portal --yes --project "$ACC_PROJECT" --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN"
+
+      - name: Deploy ACC beta production
+        id: deploy
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          url="$(vercel deploy admin-portal --prod --yes \
+            --scope "$VERCEL_TEAM" \
+            --token="$VERCEL_TOKEN" \
+            --build-env NEXT_PUBLIC_FIREBASE_API_KEY='AIzaSyC6x8KsAFyOtAnm7VFl6_RWTp6Fr9IJl_I' \
+            --build-env NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN='yhct-social-260902-42a4.firebaseapp.com' \
+            --build-env NEXT_PUBLIC_FIREBASE_PROJECT_ID='yhct-social-260902-42a4' \
+            --build-env NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET='yhct-social-260902-42a4.firebasestorage.app' \
+            --build-env NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID='244889451934' \
+            --build-env NEXT_PUBLIC_FIREBASE_APP_ID='1:244889451934:web:68766e1db11f532caeaa8f' \
+            --env GCP_PROJECT_NUMBER='244889451934' \
+            --env GCP_SERVICE_ACCOUNT_EMAIL='yhct-acc-runtime@yhct-social-260902-42a4.iam.gserviceaccount.com' \
+            --env GCP_WORKLOAD_IDENTITY_POOL_ID='vercel-yhct-social' \
+            --env GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID='vercel-acc')"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "ACC_DEPLOY_URL=$url"
+
+      - name: Verify ACC frontend responds
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          url='${{ steps.deploy.outputs.url }}'
+          for attempt in 1 2 3 4 5; do
+            status="$(curl -L -sS -o /tmp/acc.html -w '%{http_code}' "$url" || true)"
+            if [[ "$status" =~ ^[23][0-9][0-9]$ ]]; then
+              grep -q 'Admin Control Center' /tmp/acc.html || true
+              echo "ACC_FRONTEND_HTTP=PASS status=$status url=$url"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "ACC_FRONTEND_HTTP=FAIL url=$url"
+          exit 1
