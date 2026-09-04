@@ -16,6 +16,10 @@ export interface ProvisioningMember extends RosterRow {
   sourceConflict: boolean;
 }
 
+export interface ProvisioningPlanRow extends ProvisioningMember {
+  syntheticEmail: string;
+}
+
 function clean(value: unknown): string {
   return String(value ?? '').trim();
 }
@@ -29,6 +33,43 @@ function foldVietnamese(value: string): string {
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function parseCsvMatrix(csv: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let quoted = false;
+
+  for (let i = 0; i < csv.length; i += 1) {
+    const char = csv[i];
+    if (char === '"') {
+      if (quoted && csv[i + 1] === '"') {
+        field += '"';
+        i += 1;
+      } else {
+        quoted = !quoted;
+      }
+      continue;
+    }
+    if (char === ',' && !quoted) {
+      row.push(field);
+      field = '';
+      continue;
+    }
+    if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && csv[i + 1] === '\n') i += 1;
+      row.push(field);
+      field = '';
+      if (row.some((value) => value.trim() !== '')) rows.push(row);
+      row = [];
+      continue;
+    }
+    field += char;
+  }
+  row.push(field);
+  if (row.some((value) => value.trim() !== '')) rows.push(row);
+  return rows;
 }
 
 export function normalizeMemberCode(value: unknown): string {
@@ -50,6 +91,29 @@ export function mapTitleToRole(value: unknown): ClubRole {
   if (title.includes('chu nhiem')) return 'admin';
   if (title.includes('ban quan ly') || title.includes('truong ban')) return 'mod';
   return 'member';
+}
+
+export function parseRosterCsv(csv: string): RosterRow[] {
+  const matrix = parseCsvMatrix(csv.replace(/^\uFEFF/, ''));
+  const headerIndex = matrix.findIndex((row) => row.some((cell) => foldVietnamese(cell) === 'mssv'));
+  if (headerIndex < 0) throw new Error('Không tìm thấy cột MSSV trong CSV.');
+
+  const headers = matrix[headerIndex].map(foldVietnamese);
+  const indexOf = (...names: string[]) => headers.findIndex((header) => names.includes(header));
+  const mssvIndex = indexOf('mssv');
+  const nameIndex = indexOf('ho va ten', 'ho ten');
+  const facultyIndex = indexOf('khoa');
+  const titleIndex = indexOf('chuc vu', 'chuc danh');
+  if (mssvIndex < 0 || nameIndex < 0) throw new Error('CSV thiếu cột MSSV hoặc Họ và tên.');
+
+  return matrix.slice(headerIndex + 1)
+    .filter((row) => clean(row[mssvIndex]) !== '')
+    .map((row) => ({
+      memberCode: normalizeMemberCode(row[mssvIndex]),
+      displayName: clean(row[nameIndex]),
+      faculty: facultyIndex >= 0 ? clean(row[facultyIndex]) : '',
+      title: titleIndex >= 0 ? clean(row[titleIndex]) : '',
+    }));
 }
 
 export function dedupeRosterRows(rows: RosterRow[]): ProvisioningMember[] {
@@ -88,6 +152,18 @@ export function dedupeRosterRows(rows: RosterRow[]): ProvisioningMember[] {
   }
 
   return [...byCode.values()];
+}
+
+export function buildProvisioningPlan(members: ProvisioningMember[]): ProvisioningPlanRow[] {
+  return members.map((member) => ({
+    memberCode: member.memberCode,
+    syntheticEmail: memberCodeToSyntheticEmail(member.memberCode),
+    displayName: member.displayName,
+    faculty: member.faculty,
+    title: member.title,
+    role: member.role,
+    sourceConflict: member.sourceConflict,
+  }));
 }
 
 export function generateActivationPassword(): string {
