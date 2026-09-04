@@ -12,6 +12,7 @@ import {
   safeStorageFileName,
   validatePostImages,
 } from '@/lib/domain/media';
+import type { SocialMedia } from '@/lib/domain/social';
 
 export type UploadProgressHandler = (progress: number) => void;
 
@@ -39,6 +40,47 @@ function uploadOne(
   });
 }
 
+export async function uploadSocialPostImages(input: {
+  uid: string;
+  postId: string;
+  files: File[];
+  onProgress?: UploadProgressHandler;
+}): Promise<SocialMedia[]> {
+  validatePostImages(input.files);
+  if (input.files.length === 0) return [];
+
+  const uploaded: StorageReference[] = [];
+  const basePath = `social/posts/${input.uid}/${input.postId}`;
+
+  try {
+    for (let index = 0; index < input.files.length; index += 1) {
+      const file = input.files[index];
+      const fileName = `${crypto.randomUUID()}-${safeStorageFileName(file.name)}`;
+      const storageRef = ref(storage, `${basePath}/${fileName}`);
+
+      await uploadOne(storageRef, file, (currentFileProgress) => {
+        const overall = (index + currentFileProgress) / input.files.length;
+        input.onProgress?.(Math.min(1, overall));
+      });
+      uploaded.push(storageRef);
+    }
+
+    const result = await Promise.all(uploaded.map(async (item): Promise<SocialMedia> => ({
+      type: 'image',
+      storagePath: item.fullPath,
+      downloadURL: await getDownloadURL(item),
+      width: null,
+      height: null,
+    })));
+    input.onProgress?.(1);
+    return result;
+  } catch (error) {
+    await Promise.allSettled(uploaded.map((item) => deleteObject(item)));
+    throw error;
+  }
+}
+
+// Legacy v1 media uploader retained until old composer is fully retired.
 export async function uploadPostImages(input: {
   uid: string;
   postId: string;
@@ -56,12 +98,10 @@ export async function uploadPostImages(input: {
       const fileName = `${crypto.randomUUID()}-${safeStorageFileName(file.name)}`;
       const path = `post-media/${input.uid}/${input.postId}/${fileName}`;
       const storageRef = ref(storage, path);
-
       await uploadOne(storageRef, file, (currentFileProgress) => {
         const overall = (index + currentFileProgress) / input.files.length;
         input.onProgress?.(Math.min(1, overall));
       });
-
       uploaded.push(storageRef);
     }
 
