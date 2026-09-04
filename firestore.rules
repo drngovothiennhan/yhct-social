@@ -399,6 +399,42 @@ service cloud.firestore {
         && data.createdAt is timestamp && data.updatedAt is timestamp;
     }
 
+    function expectedReportId(data) {
+      return data.targetType == 'post'
+        ? 'post__' + data.postId + '__' + request.auth.uid
+        : 'comment__' + data.postId + '__' + data.commentId + '__' + request.auth.uid;
+    }
+
+    function validReportCreate(reportId, data) {
+      return canMutateSocial()
+        && data.keys().hasAll([
+          'reporterUid', 'targetType', 'postId', 'commentId', 'reasonCode', 'details',
+          'status', 'createdAt', 'updatedAt', 'assignedTo', 'resolvedBy', 'resolvedAt',
+          'resolution', 'resolutionReason'
+        ])
+        && data.keys().hasOnly([
+          'reporterUid', 'targetType', 'postId', 'commentId', 'reasonCode', 'details',
+          'status', 'createdAt', 'updatedAt', 'assignedTo', 'resolvedBy', 'resolvedAt',
+          'resolution', 'resolutionReason'
+        ])
+        && request.resource.data.reporterUid == request.auth.uid
+        && data.targetType in ['post', 'comment']
+        && data.postId is string && data.postId.size() >= 1
+        && ((data.targetType == 'post' && data.commentId == null)
+          || (data.targetType == 'comment' && data.commentId is string && data.commentId.size() >= 1))
+        && data.reasonCode in ['spam', 'misinformation', 'inappropriate', 'privacy', 'other']
+        && data.details is string && data.details.size() <= 2000
+        && request.resource.data.status == 'open'
+        && data.assignedTo == null
+        && data.resolvedBy == null
+        && data.resolvedAt == null
+        && data.resolution == null
+        && data.resolutionReason == null
+        && data.createdAt == request.time
+        && data.updatedAt == request.time
+        && reportId == expectedReportId(data);
+    }
+
     match /users/{uid} {
       allow read: if signedIn();
       allow create: if isOwner(uid) && validNewUser(request.resource.data);
@@ -522,6 +558,17 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
           && request.resource.data.updatedAt == request.time);
       allow delete: if isModerator();
+    }
+
+    match /reports/{reportId} {
+      allow read: if (signedIn() && resource.data.reporterUid == request.auth.uid) || isModerator();
+      allow create: if validReportCreate(reportId, request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /adminAudit/{eventId} {
+      allow read: if false;
+      allow write: if false;
     }
 
     match /prescriptions/{prescriptionId} {
