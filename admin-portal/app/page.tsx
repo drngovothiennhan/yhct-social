@@ -1,3 +1,5 @@
+'use client';
+
 import { AccShell } from './acc-shell';
 import { AuthGate } from './auth-gate';
 import { Dashboard } from './dashboard';
