@@ -29,7 +29,13 @@ export function ModerationQueue({ user, role }: { user: User; role: string }) {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    let active = true;
+    void accApi<{ reports: ReportRow[] }>(user, '/api/moderation/reports?status=open&limit=30')
+      .then((body) => { if (active) setReports(body.reports); })
+      .catch(() => { if (active) setMessage('Không tải được hàng đợi kiểm duyệt.'); });
+    return () => { active = false; };
+  }, [user]);
 
   async function resolve(report: ReportRow, action: 'keep' | 'hide' | 'soft_delete' | 'dismiss') {
     if (busy) return;
