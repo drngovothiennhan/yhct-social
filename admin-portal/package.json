@@ -14,7 +14,7 @@
     "check": "npm run test && npm run typecheck && npm run lint"
   },
   "dependencies": {
-    "@vercel/oidc": "3.0.5",
+    "@vercel/oidc": "3.8.5",
     "firebase": "12.18.0",
     "firebase-admin": "14.3.0",
     "google-auth-library": "10.3.0",
