@@ -311,6 +311,16 @@ service cloud.firestore {
       allow delete: if isModerator();
     }
 
+    match /migrationMembers/{memberKey} {
+      allow read: if isModerator();
+      allow write: if false;
+    }
+
+    match /activities/{activityId} {
+      allow read: if resource.data.status == 'published' || isModerator();
+      allow write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
