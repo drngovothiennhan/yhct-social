@@ -1,0 +1,318 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function currentUserExists() {
+      return signedIn() && exists(userPath(request.auth.uid));
+    }
+
+    function currentUser() {
+      return get(userPath(request.auth.uid)).data;
+    }
+
+    function isModerator() {
+      return currentUserExists() && currentUser().role in ['moderator', 'admin'];
+    }
+
+    function isAdmin() {
+      return currentUserExists() && currentUser().role == 'admin';
+    }
+
+    function isVerifiedPractitioner() {
+      return currentUserExists()
+        && currentUser().accountType == 'practitioner'
+        && currentUser().verificationStatus == 'verified';
+    }
+
+    function validAccountType(value) {
+      return value in ['member', 'practitioner', 'student', 'patient'];
+    }
+
+    function validRole(value) {
+      return value in ['member', 'moderator', 'admin'];
+    }
+
+    function validVerificationStatus(value) {
+      return value in ['not_required', 'unsubmitted', 'pending', 'verified', 'rejected'];
+    }
+
+    function validUser(data) {
+      return data.keys().hasAll([
+          'displayName', 'photoURL', 'bio', 'specialties', 'accountType',
+          'role', 'verificationStatus', 'professionalTitle', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'displayName', 'photoURL', 'bio', 'specialties', 'accountType',
+          'role', 'verificationStatus', 'professionalTitle', 'createdAt', 'updatedAt'
+        ])
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && data.photoURL is string && data.photoURL.size() <= 500
+        && data.bio is string && data.bio.size() <= 500
+        && data.specialties is list && data.specialties.size() <= 12
+        && validAccountType(data.accountType)
+        && validRole(data.role)
+        && validVerificationStatus(data.verificationStatus)
+        && data.professionalTitle is string && data.professionalTitle.size() <= 120
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function validNewUser(data) {
+      return validUser(data)
+        && data.role == 'member'
+        && data.professionalTitle == ''
+        && data.createdAt == request.time
+        && data.updatedAt == request.time
+        && (
+          (data.accountType == 'practitioner' && data.verificationStatus == 'unsubmitted')
+          || (data.accountType != 'practitioner' && data.verificationStatus == 'not_required')
+        );
+    }
+
+    function validSelfUserUpdate(before, after) {
+      return validUser(after)
+        && after.diff(before).affectedKeys().hasOnly([
+          'displayName', 'photoURL', 'bio', 'specialties', 'accountType',
+          'verificationStatus', 'updatedAt'
+        ])
+        && after.role == before.role
+        && after.professionalTitle == before.professionalTitle
+        && after.createdAt == before.createdAt
+        && after.updatedAt == request.time
+        && (
+          (before.verificationStatus == 'verified'
+            && after.accountType == 'practitioner'
+            && after.verificationStatus == 'verified')
+          || (before.verificationStatus != 'verified'
+            && after.accountType == 'practitioner'
+            && after.verificationStatus in ['unsubmitted', 'pending'])
+          || (before.verificationStatus != 'verified'
+            && after.accountType != 'practitioner'
+            && after.verificationStatus == 'not_required')
+        );
+    }
+
+    function validAdminUserUpdate(before, after) {
+      return validUser(after)
+        && after.createdAt == before.createdAt
+        && after.updatedAt == request.time
+        && (
+          (after.accountType == 'practitioner'
+            && after.verificationStatus in ['unsubmitted', 'pending', 'verified', 'rejected'])
+          || (after.accountType != 'practitioner' && after.verificationStatus == 'not_required')
+        );
+    }
+
+    function validPost(data) {
+      return data.keys().hasAll([
+          'authorId', 'authorDisplayName', 'authorPhotoURL', 'authorProfessionalTitle',
+          'professionalLabel', 'type', 'title', 'content', 'mediaPaths', 'tags',
+          'isDeidentified', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'authorId', 'authorDisplayName', 'authorPhotoURL', 'authorProfessionalTitle',
+          'professionalLabel', 'type', 'title', 'content', 'mediaPaths', 'tags',
+          'isDeidentified', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.authorId is string
+        && data.authorDisplayName is string && data.authorDisplayName.size() >= 1 && data.authorDisplayName.size() <= 80
+        && data.authorPhotoURL is string && data.authorPhotoURL.size() <= 500
+        && data.authorProfessionalTitle is string && data.authorProfessionalTitle.size() <= 120
+        && data.professionalLabel is bool
+        && data.type in ['clinical_case', 'remedy', 'qa']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 180
+        && data.content is string && data.content.size() >= 1 && data.content.size() <= 12000
+        && data.mediaPaths is list && data.mediaPaths.size() <= 6
+        && data.tags is list && data.tags.size() <= 10
+        && data.isDeidentified is bool
+        && data.status in ['published', 'hidden', 'removed']
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function validPostCreate(data) {
+      return validPost(data)
+        && currentUserExists()
+        && data.authorId == request.auth.uid
+        && data.authorDisplayName == currentUser().displayName
+        && data.authorPhotoURL == currentUser().photoURL
+        && data.authorProfessionalTitle == currentUser().professionalTitle
+        && data.status == 'published'
+        && (!data.professionalLabel || isVerifiedPractitioner())
+        && (data.type != 'clinical_case' || data.isDeidentified == true)
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function validOwnerPostUpdate(before, after) {
+      return validPost(after)
+        && after.diff(before).affectedKeys().hasOnly(['title', 'content', 'mediaPaths', 'tags', 'updatedAt'])
+        && after.authorId == before.authorId
+        && after.authorDisplayName == before.authorDisplayName
+        && after.authorPhotoURL == before.authorPhotoURL
+        && after.authorProfessionalTitle == before.authorProfessionalTitle
+        && after.professionalLabel == before.professionalLabel
+        && after.type == before.type
+        && after.isDeidentified == before.isDeidentified
+        && after.status == before.status
+        && after.createdAt == before.createdAt
+        && after.updatedAt == request.time;
+    }
+
+    function validModeratedPostUpdate(before, after) {
+      return validPost(after)
+        && after.diff(before).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && after.authorId == before.authorId
+        && after.createdAt == before.createdAt
+        && after.updatedAt == request.time;
+    }
+
+    function publishedPost(postId) {
+      return exists(/databases/$(database)/documents/posts/$(postId))
+        && get(/databases/$(database)/documents/posts/$(postId)).data.status == 'published';
+    }
+
+    function validComment(data) {
+      return data.keys().hasAll([
+          'postId', 'authorId', 'authorDisplayName', 'authorPhotoURL', 'parentId',
+          'depth', 'content', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'postId', 'authorId', 'authorDisplayName', 'authorPhotoURL', 'parentId',
+          'depth', 'content', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.postId is string && data.postId.size() >= 1
+        && data.authorId is string
+        && data.authorDisplayName is string && data.authorDisplayName.size() >= 1 && data.authorDisplayName.size() <= 80
+        && data.authorPhotoURL is string && data.authorPhotoURL.size() <= 500
+        && data.parentId is string
+        && data.depth is int && data.depth >= 0 && data.depth <= 3
+        && data.content is string && data.content.size() <= 4000
+        && data.status in ['active', 'hidden', 'deleted']
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function validCommentParent(data) {
+      return (data.parentId == '' && data.depth == 0)
+        || (data.parentId != ''
+          && exists(/databases/$(database)/documents/comments/$(data.parentId))
+          && get(/databases/$(database)/documents/comments/$(data.parentId)).data.postId == data.postId
+          && data.depth == get(/databases/$(database)/documents/comments/$(data.parentId)).data.depth + 1
+          && data.depth <= 3);
+    }
+
+    function validCommentCreate(data) {
+      return validComment(data)
+        && currentUserExists()
+        && publishedPost(data.postId)
+        && data.authorId == request.auth.uid
+        && data.authorDisplayName == currentUser().displayName
+        && data.authorPhotoURL == currentUser().photoURL
+        && data.status == 'active'
+        && data.content.size() >= 1
+        && validCommentParent(data)
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function validOwnerCommentUpdate(before, after) {
+      return validComment(after)
+        && after.diff(before).affectedKeys().hasOnly(['content', 'status', 'updatedAt'])
+        && after.postId == before.postId
+        && after.authorId == before.authorId
+        && after.authorDisplayName == before.authorDisplayName
+        && after.authorPhotoURL == before.authorPhotoURL
+        && after.parentId == before.parentId
+        && after.depth == before.depth
+        && after.createdAt == before.createdAt
+        && after.updatedAt == request.time
+        && ((after.status == 'active' && after.content.size() >= 1)
+          || (after.status == 'deleted' && after.content == ''));
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create: if isOwner(uid) && validNewUser(request.resource.data);
+      allow update: if (isOwner(uid) && validSelfUserUpdate(resource.data, request.resource.data))
+        || (isAdmin() && validAdminUserUpdate(resource.data, request.resource.data));
+      allow delete: if isAdmin() && request.auth.uid != uid;
+
+      match /private/{documentId} {
+        allow read: if isOwner(uid) || isModerator();
+        allow create, update: if (isOwner(uid) || isModerator()) && documentId == 'verification';
+        allow delete: if isOwner(uid) || isAdmin();
+      }
+    }
+
+    match /posts/{postId} {
+      allow read: if resource.data.status == 'published'
+        || (signedIn() && resource.data.authorId == request.auth.uid)
+        || isModerator();
+      allow create: if signedIn() && validPostCreate(request.resource.data);
+      allow update: if (signedIn()
+          && resource.data.authorId == request.auth.uid
+          && validOwnerPostUpdate(resource.data, request.resource.data))
+        || (isModerator() && validModeratedPostUpdate(resource.data, request.resource.data));
+      allow delete: if (signedIn() && resource.data.authorId == request.auth.uid) || isModerator();
+
+      match /likes/{uid} {
+        allow read: if publishedPost(postId) || isModerator();
+        allow create: if isOwner(uid)
+          && publishedPost(postId)
+          && request.resource.data.keys().hasOnly(['userId', 'createdAt'])
+          && request.resource.data.userId == uid
+          && request.resource.data.createdAt == request.time;
+        allow update: if false;
+        allow delete: if isOwner(uid) || isModerator();
+      }
+    }
+
+    match /comments/{commentId} {
+      allow read: if (resource.data.status in ['active', 'deleted'] && publishedPost(resource.data.postId))
+        || (signedIn() && resource.data.authorId == request.auth.uid)
+        || isModerator();
+      allow create: if signedIn() && validCommentCreate(request.resource.data);
+      allow update: if (signedIn()
+          && resource.data.authorId == request.auth.uid
+          && validOwnerCommentUpdate(resource.data, request.resource.data))
+        || (isModerator()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time);
+      allow delete: if isModerator();
+    }
+
+    match /prescriptions/{prescriptionId} {
+      allow read: if resource.data.status == 'published'
+        || (signedIn() && resource.data.authorId == request.auth.uid)
+        || isModerator();
+      allow create: if isVerifiedPractitioner()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.professionalLabel == true
+        && request.resource.data.status == 'published'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if isModerator()
+        || (isVerifiedPractitioner()
+          && resource.data.authorId == request.auth.uid
+          && request.resource.data.authorId == resource.data.authorId
+          && request.resource.data.professionalLabel == true
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time);
+      allow delete: if isModerator();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

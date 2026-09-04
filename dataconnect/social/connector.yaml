@@ -1,9 +1,0 @@
-connectorId: social
-generate:
-  javascriptSdk:
-    outputDir: ../../generated/sql-connect
-    package: "@yhct/sql-connect"
-    react: true
-    clientCache:
-      maxAge: "15s"
-      storage: memory

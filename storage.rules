@@ -1,0 +1,64 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentUser() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isModerator() {
+      return signedIn()
+        && currentUser().role in ['moderator', 'admin'];
+    }
+
+    function isImage() {
+      return request.resource != null
+        && request.resource.contentType != null
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    function isPdfOrImage() {
+      return request.resource != null
+        && request.resource.contentType != null
+        && (
+          request.resource.contentType == 'application/pdf'
+          || request.resource.contentType.matches('image/(jpeg|png|webp)')
+        );
+    }
+
+    match /avatars/{uid}/{fileName} {
+      allow read: if true;
+      allow create, update: if signedIn()
+        && request.auth.uid == uid
+        && isImage()
+        && request.resource.size <= 5 * 1024 * 1024;
+      allow delete: if (signedIn() && request.auth.uid == uid) || isModerator();
+    }
+
+    match /post-media/{uid}/{postId}/{fileName} {
+      allow read: if true;
+      allow create, update: if signedIn()
+        && request.auth.uid == uid
+        && isImage()
+        && request.resource.size <= 10 * 1024 * 1024;
+      allow delete: if (signedIn() && request.auth.uid == uid) || isModerator();
+    }
+
+    match /certificates/{uid}/{fileName} {
+      allow read: if (signedIn() && request.auth.uid == uid) || isModerator();
+      allow create, update: if signedIn()
+        && request.auth.uid == uid
+        && isPdfOrImage()
+        && request.resource.size <= 10 * 1024 * 1024;
+      allow delete: if (signedIn() && request.auth.uid == uid) || isModerator();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
