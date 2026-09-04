@@ -11,9 +11,9 @@ test('verification evidence reuses private certificates owner subtree', () => {
   assert.match(rules, /10 \* 1024 \* 1024/);
 });
 
-test('certificate evidence is never public-readable', () => {
+test('certificate evidence direct reads are owner-only and moderator access is server-brokered', () => {
   const certificateBlock = rules.match(/match \/certificates\/\{uid\}\/\{fileName\} \{([\s\S]*?)\n    \}/)?.[1] ?? '';
   assert.doesNotMatch(certificateBlock, /allow read: if true/);
-  assert.match(certificateBlock, /request\.auth\.uid == uid/);
-  assert.match(certificateBlock, /isModerator\(\)/);
+  assert.match(certificateBlock, /allow read: if signedIn\(\) && request\.auth\.uid == uid;/);
+  assert.doesNotMatch(certificateBlock, /allow read:[^;]*isModerator\(\)/);
 });
