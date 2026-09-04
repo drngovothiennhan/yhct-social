@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Search, UserRound } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { SocialPostCard } from '@/components/portal/social-post-card';
+import { VerificationPanel } from '@/components/portal/verification-panel';
 import {
   filterMemberDirectory,
   loadMemberDirectory,
@@ -107,6 +108,7 @@ export function MemberProfileScreen({ uid }: { uid: string }) {
         <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
           <span className="rounded-full bg-slate-100 px-3 py-1">{member.role}</span>
           {member.memberCode ? <span className="rounded-full bg-slate-100 px-3 py-1">MSSV {member.memberCode}</span> : null}
+          {member.accountType === 'practitioner' ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">Xác minh: {member.verificationStatus}</span> : null}
         </div>
         {member.bio ? <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{member.bio}</p> : null}
         {member.specialties?.length ? <p className="mt-3 text-xs text-slate-500">Chuyên môn: {member.specialties.join(' · ')}</p> : null}
@@ -166,5 +168,8 @@ export function ProfileScreen() {
   if (!user || !profile) return <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">Đăng nhập để chỉnh sửa hồ sơ.</section>;
 
   const version = profile.updatedAt?.toMillis?.() ?? 0;
-  return <ProfileEditor key={`${profile.uid}-${version}`} profile={profile} userUid={user.uid} refreshProfile={refreshProfile} />;
+  return <div className="space-y-4">
+    <ProfileEditor key={`${profile.uid}-${version}`} profile={profile} userUid={user.uid} refreshProfile={refreshProfile} />
+    <VerificationPanel profile={profile} refreshProfile={refreshProfile} />
+  </div>;
 }
