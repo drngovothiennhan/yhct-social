@@ -23,3 +23,11 @@ test('certificate storage is private to owner and moderators', () => {
   assert.match(storageRules, /match \/certificates\/\{uid\}\/\{fileName\}/);
   assert.match(storageRules, /allow read: if \(signedIn\(\) && request\.auth\.uid == uid\) \|\| isModerator\(\);/);
 });
+
+test('migration member staging is private and client read-only', () => {
+  assert.match(firestoreRules, /match \/migrationMembers\/\{memberKey\} \{\s*allow read: if isModerator\(\);\s*allow write: if false;/s);
+});
+
+test('activities expose only published records to public clients', () => {
+  assert.match(firestoreRules, /match \/activities\/\{activityId\} \{\s*allow read: if resource\.data\.status == 'published' \|\| isModerator\(\);\s*allow write: if false;/s);
+});
