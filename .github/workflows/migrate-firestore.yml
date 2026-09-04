@@ -79,15 +79,18 @@ jobs:
           rm -rf /tmp/yhct-migration
           mkdir -p /tmp/yhct-migration
           unzip -q /tmp/yhct-migration.zip -d /tmp/yhct-migration
-          test -f /tmp/yhct-migration/members.sanitized.json
-          test -f /tmp/yhct-migration/activities.json
+          members_path="$(find /tmp/yhct-migration -type f -name 'members.sanitized.json' -print -quit)"
+          test -n "$members_path"
+          migration_dir="$(dirname "$members_path")"
+          test -f "$migration_dir/activities.json"
+          echo "MIGRATION_DIR=$migration_dir" >> "$GITHUB_ENV"
           echo 'MIGRATION_EXTRACT=PASS'
 
       - name: Validate real migration bundle
-        run: node --experimental-strip-types scripts/import-firestore.mjs --dir /tmp/yhct-migration --dry-run
+        run: node --experimental-strip-types scripts/import-firestore.mjs --dir "$MIGRATION_DIR" --dry-run
 
       - name: Import sanitized migration into Firestore
-        run: node --experimental-strip-types scripts/import-firestore.mjs --dir /tmp/yhct-migration
+        run: node --experimental-strip-types scripts/import-firestore.mjs --dir "$MIGRATION_DIR"
 
       - name: Verify imported Firestore counts
         shell: bash
