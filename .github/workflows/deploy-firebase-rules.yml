@@ -1,0 +1,64 @@
+name: Deploy Firebase Rules
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy-firebase-rules.yml'
+      - '.firebaserc'
+      - 'firebase.json'
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
+      - 'storage.rules'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: yhct-firestore-rules-production
+  cancel-in-progress: false
+
+jobs:
+  validate-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      GOOGLE_CLOUD_PROJECT: yhct-social-260902-42a4
+      GCLOUD_PROJECT: yhct-social-260902-42a4
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate application
+        run: npm run check
+
+      - name: Validate Google OIDC variables
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${{ vars.GCP_WIF_PROVIDER }}" || { echo 'FIREBASE_DEPLOY=BLOCKED reason=GCP_WIF_PROVIDER_MISSING'; exit 1; }
+          test -n "${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}" || { echo 'FIREBASE_DEPLOY=BLOCKED reason=GCP_DEPLOY_SERVICE_ACCOUNT_MISSING'; exit 1; }
+
+      - name: Authenticate to Google Cloud with GitHub OIDC
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: yhct-social-260902-42a4
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Deploy Firestore and Storage security configuration
+        run: npx firebase-tools@15.29.0 deploy --project yhct-social-260902-42a4 --only firestore:rules,firestore:indexes,storage --non-interactive

@@ -1,0 +1,38 @@
+{
+  "name": "yhct-social",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0 <23"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "firebase:emulators": "firebase emulators:start",
+    "firebase:deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes,storage",
+    "test": "node --experimental-strip-types --test tests-node/*.test.mjs",
+    "check": "npm run test && npm run typecheck && npm run lint"
+  },
+  "dependencies": {
+    "firebase": "12.18.0",
+    "lucide-react": "1.40.0",
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "22.18.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "eslint": "10.9.1",
+    "eslint-config-next": "16.3.4",
+    "firebase-tools": "15.29.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3"
+  }
+}
