@@ -1,0 +1,11 @@
+serviceId: yhct-social-vnext
+location: asia-southeast1
+schema:
+  source: ./schema
+  datasource:
+    postgresql:
+      database: yhct_vnext
+      cloudSql:
+        instanceId: yhct-postgres
+        schemaValidation: COMPATIBLE
+connectorDirs: [./social]
