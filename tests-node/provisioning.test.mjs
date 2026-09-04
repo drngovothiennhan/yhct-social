@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   buildProvisioningPlan,
+  buildProvisioningSourceHash,
   dedupeRosterRows,
   generateActivationPassword,
   mapTitleToRole,
@@ -72,6 +73,19 @@ test('provisioning plan is deterministic and never exposes an activation passwor
     memberCode: '2413120001', syntheticEmail: '2413120001@members.yhct.hiu.vn',
     displayName: 'Sinh Viên A', faculty: 'Y', title: 'Thành viên', role: 'member', sourceConflict: false,
   }]);
+});
+
+test('provisioning source hash is stable and changes when authorization metadata changes', () => {
+  const member = {
+    memberCode: '2413120001', syntheticEmail: '2413120001@members.yhct.hiu.vn',
+    displayName: 'Sinh Viên A', faculty: 'Y', title: 'Thành viên', role: 'member', sourceConflict: false,
+  };
+  const first = buildProvisioningSourceHash(member);
+  const second = buildProvisioningSourceHash({ ...member });
+  const changed = buildProvisioningSourceHash({ ...member, title: 'Ban quản lý', role: 'mod' });
+  assert.equal(first, second);
+  assert.notEqual(first, changed);
+  assert.match(first, /^[a-f0-9]{64}$/);
 });
 
 test('provisioning CLI dry-run reports only aggregate counts', () => {
