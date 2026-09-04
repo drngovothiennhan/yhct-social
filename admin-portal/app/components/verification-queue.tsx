@@ -28,7 +28,14 @@ export function VerificationQueue({ user, role }: { user: User; role: string }) 
     }
   }
 
-  useEffect(() => { void load(); }, [role, user]);
+  useEffect(() => {
+    if (!canDecideVerification(role)) return;
+    let active = true;
+    void accApi<{ requests: VerificationRow[] }>(user, '/api/verification/requests?limit=30')
+      .then((body) => { if (active) setRequests(body.requests.filter((item) => item.status === 'pending')); })
+      .catch(() => { if (active) setMessage('Không tải được hàng đợi xác minh.'); });
+    return () => { active = false; };
+  }, [role, user]);
 
   async function decide(row: VerificationRow, decision: 'verified' | 'rejected') {
     if (!canDecideVerification(role) || busy) return;
