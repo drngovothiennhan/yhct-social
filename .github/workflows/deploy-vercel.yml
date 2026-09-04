@@ -1,0 +1,112 @@
+name: Deploy Vercel Production
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yhct-vercel-production
+  cancel-in-progress: false
+
+jobs:
+  validate-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+      NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+
+      - name: Validate required deployment secrets
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          required=(
+            VERCEL_TOKEN
+            VERCEL_ORG_ID
+            VERCEL_PROJECT_ID
+            NEXT_PUBLIC_FIREBASE_API_KEY
+            NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+            NEXT_PUBLIC_FIREBASE_PROJECT_ID
+            NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+            NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+            NEXT_PUBLIC_FIREBASE_APP_ID
+          )
+          missing=0
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "VERCEL_DEPLOY=BLOCKED missing=${name}"
+              missing=1
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+          if [[ "$NEXT_PUBLIC_FIREBASE_PROJECT_ID" != 'yhct-social-260902-42a4' ]]; then
+            echo 'VERCEL_DEPLOY=BLOCKED reason=FIREBASE_PROJECT_ID_MISMATCH'
+            exit 1
+          fi
+          echo 'VERCEL_DEPLOY_SECRETS=PASS'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate application
+        run: npm run check
+
+      - name: Install pinned Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel production settings
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build Vercel production artifact
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy production artifact
+        id: deploy
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          url="$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "VERCEL_PRODUCTION_URL=$url"
+
+      - name: Verify production URL responds
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          url='${{ steps.deploy.outputs.url }}'
+          for attempt in 1 2 3 4 5; do
+            status="$(curl -L -sS -o /tmp/vercel-home.html -w '%{http_code}' "$url" || true)"
+            if [[ "$status" =~ ^2|3 ]]; then
+              echo "VERCEL_SMOKE_HTTP=PASS status=$status url=$url"
+              exit 0
+            fi
+            echo "VERCEL_SMOKE_HTTP=RETRY attempt=$attempt status=$status"
+            sleep 5
+          done
+          echo "VERCEL_SMOKE_HTTP=FAIL url=$url"
+          exit 1
