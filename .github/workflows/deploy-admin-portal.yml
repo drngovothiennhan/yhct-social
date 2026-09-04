@@ -49,7 +49,7 @@ jobs:
           if vercel project inspect "$ACC_PROJECT" --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN" >/dev/null 2>&1; then
             echo 'ACC_VERCEL_PROJECT=EXISTS'
           else
-            vercel project add "$ACC_PROJECT" --yes --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN"
+            vercel project add "$ACC_PROJECT" --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN"
             echo 'ACC_VERCEL_PROJECT=CREATED'
           fi
 
