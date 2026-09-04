@@ -1,3 +1,5 @@
+'use client';
+
 import { AccShell } from '../acc-shell';
 import { AuthGate } from '../auth-gate';
 import { AuditTable } from '../components/audit-table';
