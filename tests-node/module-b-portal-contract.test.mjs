@@ -10,6 +10,8 @@ const feed = await readFile(new URL('../components/portal/social-feed.tsx', impo
 const composer = await readFile(new URL('../components/portal/social-composer.tsx', import.meta.url), 'utf8');
 const comments = await readFile(new URL('../components/portal/social-comments.tsx', import.meta.url), 'utf8');
 const ci = await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+const beta2Rules = await readFile(new URL('../.github/workflows/deploy-beta2-firestore-rules.yml', import.meta.url), 'utf8');
+const productionRules = await readFile(new URL('../.github/workflows/deploy-firebase-rules.yml', import.meta.url), 'utf8');
 
 const routes = await Promise.all([
   '../app/feed/page.tsx',
@@ -73,4 +75,13 @@ test('all approved portal routes exist', () => {
 
 test('CI validates pushes to both main and release v1.0', () => {
   assert.match(ci, /branches:\s*\[main, release\/v1\.0\]/);
+});
+
+test('release branch validates Firebase policy without crossing the main WIF trust boundary', () => {
+  assert.match(beta2Rules, /branches:\s*\[release\/v1\.0\]/);
+  assert.doesNotMatch(beta2Rules, /google-github-actions\/auth/);
+  assert.doesNotMatch(beta2Rules, /firebase-tools.*deploy/s);
+  assert.match(productionRules, /branches:\s*\[main\]/);
+  assert.match(productionRules, /providers\/github-main/);
+  assert.match(productionRules, /firebase-tools@15\.29\.0 deploy/);
 });
