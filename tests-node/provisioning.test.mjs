@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildProvisioningPlan,
   dedupeRosterRows,
   generateActivationPassword,
   mapTitleToRole,
   memberCodeToSyntheticEmail,
   normalizeMemberCode,
+  parseRosterCsv,
 } from '../lib/domain/provisioning.ts';
 
 test('member code normalization keeps digits and rejects empty identifiers', () => {
@@ -53,4 +55,33 @@ test('activation password is random-looking and never derived from MSSV', () => 
   assert.match(password, /[a-z]/);
   assert.match(password, /[0-9]/);
   assert.notEqual(password, '2413120001');
+});
+
+test('CSV parser finds the MSSV header and excludes phone data from returned rows', () => {
+  const csv = [
+    'DANH SÁCH CLB,,,,,',
+    'STT,Họ và tên,MSSV,Khoa,SĐT,Chức vụ',
+    '1,"Sinh Viên A",2413120001,Y,0900000000,"Ban quản lý"',
+  ].join('\n');
+  assert.deepEqual(parseRosterCsv(csv), [{
+    memberCode: '2413120001',
+    displayName: 'Sinh Viên A',
+    faculty: 'Y',
+    title: 'Ban quản lý',
+  }]);
+});
+
+test('provisioning plan is deterministic and never exposes an activation password in dry-run data', () => {
+  const members = dedupeRosterRows([
+    { memberCode: '2413120001', displayName: 'Sinh Viên A', faculty: 'Y', title: 'Thành viên' },
+  ]);
+  assert.deepEqual(buildProvisioningPlan(members), [{
+    memberCode: '2413120001',
+    syntheticEmail: '2413120001@members.yhct.hiu.vn',
+    displayName: 'Sinh Viên A',
+    faculty: 'Y',
+    title: 'Thành viên',
+    role: 'member',
+    sourceConflict: false,
+  }]);
 });
