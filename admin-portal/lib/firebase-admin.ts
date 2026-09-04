@@ -2,7 +2,6 @@ import { getVercelOidcToken } from '@vercel/oidc';
 import { ExternalAccountClient } from 'google-auth-library';
 import {
   applicationDefault,
-  cert,
   getApps,
   initializeApp,
   type App,
@@ -47,17 +46,7 @@ function vercelOidcCredential(): Credential {
 }
 
 function resolveCredential(): Credential {
-  if (process.env.VERCEL === '1') return vercelOidcCredential();
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    const parsed = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON) as {
-      project_id: string;
-      client_email: string;
-      private_key: string;
-    };
-    if (parsed.project_id !== PROJECT_ID) throw new Error('ACC_FIREBASE_PROJECT_MISMATCH');
-    return cert(parsed);
-  }
-  return applicationDefault();
+  return process.env.VERCEL === '1' ? vercelOidcCredential() : applicationDefault();
 }
 
 export function getAdminApp(): App {
