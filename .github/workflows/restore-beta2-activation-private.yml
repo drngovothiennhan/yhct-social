@@ -1,0 +1,56 @@
+name: Restore Beta 2.0 Private Activation File
+
+on:
+  push:
+    branches: [beta/2.0-module-a]
+    paths:
+      - '.github/workflows/restore-beta2-activation-private.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FILE_ID: 1XiqgnrKhT6wP814kDBPcAjXPP_-cbhkk
+      REVISION_ID: 0B3txhWMMqE1BeEJESi9BNG8ybnJSTU9uWkloTVU2R1ZRVzlZPQ
+    steps:
+      - name: Authenticate Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: yhct-social-260902-42a4
+          workload_identity_provider: projects/244889451934/locations/global/workloadIdentityPools/github-yhct-social/providers/github-main
+          service_account: yhct-github-deploy@yhct-social-260902-42a4.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/drive
+
+      - name: Restore verified private revision
+        env:
+          DRIVE_TOKEN: ${{ steps.auth.outputs.access_token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --location \
+            --header "Authorization: Bearer $DRIVE_TOKEN" \
+            "https://www.googleapis.com/drive/v3/files/${FILE_ID}/revisions/${REVISION_ID}?alt=media" \
+            --output /tmp/activation.csv
+          lines="$(wc -l < /tmp/activation.csv)"
+          test "$lines" -ge 160
+          grep -q '^2413120084,' /tmp/activation.csv
+          curl --fail --silent --show-error --location \
+            --request PATCH \
+            --header "Authorization: Bearer $DRIVE_TOKEN" \
+            --header 'Content-Type: text/csv; charset=utf-8' \
+            --data-binary @/tmp/activation.csv \
+            "https://www.googleapis.com/upload/drive/v3/files/${FILE_ID}?uploadType=media" \
+            --output /tmp/drive-update.json
+          echo 'BETA2_ACTIVATION_RESTORE=PASS'
+
+      - name: Remove private files
+        if: always()
+        run: rm -f /tmp/activation.csv /tmp/drive-update.json
