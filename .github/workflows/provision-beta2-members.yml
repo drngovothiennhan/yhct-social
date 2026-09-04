@@ -65,7 +65,7 @@ jobs:
           set -Eeuo pipefail
           firestore_status="$(curl --silent --output /tmp/firestore-probe.json --write-out '%{http_code}' \
             --header "Authorization: Bearer $ACCESS_TOKEN" \
-            "https://firestore.googleapis.com/v1/projects/${GOOGLE_CLOUD_PROJECT}/databases/(default)/documents/clubProvisioning/__permission_probe__")"
+            "https://firestore.googleapis.com/v1/projects/${GOOGLE_CLOUD_PROJECT}/databases/(default)/documents/clubProvisioning/permission-probe")"
           if [[ "$firestore_status" != "200" && "$firestore_status" != "404" ]]; then
             echo "FIRESTORE_PERMISSION_PROBE=FAIL status=$firestore_status"
             exit 21
