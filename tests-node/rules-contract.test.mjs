@@ -31,3 +31,25 @@ test('migration member staging is private and client read-only', () => {
 test('activities expose only published records to public clients', () => {
   assert.match(firestoreRules, /match \/activities\/\{activityId\} \{\s*allow read: if resource\.data\.status == 'published' \|\| isModerator\(\);\s*allow write: if false;/s);
 });
+
+test('privileged moderation is claim-first with all Beta 2.0 roles', () => {
+  assert.match(firestoreRules, /request\.auth\.token\.role in \['mod', 'super_mod', 'admin'\]/);
+  assert.match(firestoreRules, /request\.auth\.token\.role in \['super_mod', 'admin'\]/);
+  assert.match(firestoreRules, /request\.auth\.token\.role == 'admin'/);
+});
+
+test('legacy moderator remains read-compatible only during role migration', () => {
+  assert.match(firestoreRules, /currentUser\(\)\.role in \['moderator', 'admin'\]/);
+});
+
+test('client self-update cannot mutate RBAC or provisioning identity fields', () => {
+  assert.match(firestoreRules, /after\.diff\(before\)\.affectedKeys\(\)\.hasOnly\(\[[^\]]*'displayName'[^\]]*'updatedAt'[^\]]*\]\)/s);
+  assert.match(firestoreRules, /after\.role == before\.role/);
+  assert.match(firestoreRules, /after\.memberCode == before\.memberCode/);
+  assert.match(firestoreRules, /after\.provisioningSource == before\.provisioningSource/);
+  assert.match(firestoreRules, /after\.professionalTitle == before\.professionalTitle/);
+});
+
+test('private access document is never client-writable', () => {
+  assert.match(firestoreRules, /match \/private\/\{documentId\} \{[\s\S]*documentId == 'access'[\s\S]*allow write: if false;/);
+});
