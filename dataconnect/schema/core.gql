@@ -1,0 +1,96 @@
+enum UserRole {
+  MEMBER
+  MOD
+  SUPER_MOD
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum PostVisibility {
+  CLUB
+  PUBLIC
+}
+
+enum ContentStatus {
+  ACTIVE
+  HIDDEN
+  DELETED
+}
+
+enum ReactionType {
+  LIKE
+  LOVE
+  CARE
+  INSIGHTFUL
+}
+
+enum MediaKind {
+  AVATAR
+  POST_IMAGE
+  DOCUMENT
+}
+
+enum MediaStatus {
+  PENDING
+  READY
+  BLOCKED
+  DELETED
+}
+
+type User @table(key: "uid") {
+  uid: String! @default(expr: "auth.uid")
+  mssv: String! @unique
+  displayName: String! @searchable
+  role: UserRole! @default(value: MEMBER) @index
+  status: UserStatus! @default(value: ACTIVE) @index
+  title: String
+  department: String
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Post @table
+  @index(fields: ["status", "visibility", "createdAt"], order: [ASC, ASC, DESC]) {
+  author: User!
+  body: String!
+  visibility: PostVisibility! @default(value: CLUB)
+  status: ContentStatus! @default(value: ACTIVE)
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Comment @table
+  @index(fields: ["post", "status", "createdAt"], order: [ASC, ASC, ASC]) {
+  post: Post!
+  author: User!
+  parent: Comment
+  body: String!
+  status: ContentStatus! @default(value: ACTIVE)
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Reaction @table(key: ["post", "user"]) {
+  post: Post!
+  user: User!
+  type: ReactionType!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type Media @table
+  @index(fields: ["owner", "status", "createdAt"], order: [ASC, ASC, DESC]) {
+  owner: User!
+  post: Post
+  kind: MediaKind!
+  storagePath: String! @unique
+  mimeType: String!
+  sizeBytes: Int64!
+  sha256: String!
+  status: MediaStatus! @default(value: PENDING)
+  createdAt: Timestamp! @default(expr: "request.time")
+}
