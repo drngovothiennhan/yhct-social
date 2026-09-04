@@ -2,8 +2,12 @@ name: Deploy Beta 2.0 Firebase Rules
 
 on:
   push:
-    branches: [beta/2.0-module-a]
+    branches: [release/v1.0]
     paths:
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
+      - 'storage.rules'
+      - 'firebase.json'
       - '.github/workflows/deploy-beta2-firestore-rules.yml'
   workflow_dispatch:
 
@@ -41,5 +45,3 @@ jobs:
           set -Eeuo pipefail
           npx firebase-tools@15.29.0 deploy --project yhct-social-260902-42a4 --only storage,firestore:rules,firestore:indexes --non-interactive
           echo 'BETA2_FIREBASE_RULES_DEPLOY=PASS'
-
-# Current-head deployment verification trigger.
