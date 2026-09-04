@@ -1,32 +1,39 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ImageIcon } from 'lucide-react';
 import { resolveStorageUrl } from '@/lib/storage-service';
 
+interface ResolvedMedia {
+  key: string;
+  urls: string[];
+}
+
 export function PostMedia({ paths }: { paths: string[] }) {
-  const [urls, setUrls] = useState<string[]>([]);
+  const pathsKey = useMemo(() => paths.join('\n'), [paths]);
+  const [resolvedMedia, setResolvedMedia] = useState<ResolvedMedia>({ key: '', urls: [] });
 
   useEffect(() => {
     let active = true;
     if (paths.length === 0) {
-      setUrls([]);
       return () => { active = false; };
     }
 
     void Promise.all(paths.map(resolveStorageUrl))
       .then((resolved) => {
-        if (active) setUrls(resolved);
+        if (active) setResolvedMedia({ key: pathsKey, urls: resolved });
       })
       .catch(() => {
-        if (active) setUrls([]);
+        if (active) setResolvedMedia({ key: pathsKey, urls: [] });
       });
 
     return () => { active = false; };
-  }, [paths]);
+  }, [paths, pathsKey]);
 
   if (paths.length === 0) return null;
+
+  const urls = resolvedMedia.key === pathsKey ? resolvedMedia.urls : [];
 
   if (urls.length === 0) {
     return (
