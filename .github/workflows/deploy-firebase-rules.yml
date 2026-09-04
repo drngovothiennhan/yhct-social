@@ -28,8 +28,8 @@ jobs:
       CI: 'true'
       GOOGLE_CLOUD_PROJECT: yhct-social-260902-42a4
       GCLOUD_PROJECT: yhct-social-260902-42a4
-      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
-      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      GCP_WIF_PROVIDER: projects/244889451934/locations/global/workloadIdentityPools/github-yhct-social/providers/github-main
+      GCP_DEPLOY_SERVICE_ACCOUNT: yhct-github-deploy@yhct-social-260902-42a4.iam.gserviceaccount.com
       HAS_GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON != '' }}
       HAS_FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN != '' }}
       FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
@@ -66,7 +66,6 @@ jobs:
             echo 'FIREBASE_AUTH_MODE=firebase-token legacy=true'
           else
             echo 'FIREBASE_DEPLOY=BLOCKED reason=NO_SUPPORTED_CREDENTIALS'
-            echo 'Configure either GCP_WIF_PROVIDER + GCP_DEPLOY_SERVICE_ACCOUNT, secret GCP_SERVICE_ACCOUNT_JSON, or legacy secret FIREBASE_TOKEN.'
             exit 1
           fi
 
@@ -75,8 +74,8 @@ jobs:
         uses: google-github-actions/auth@v3
         with:
           project_id: yhct-social-260902-42a4
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_DEPLOY_SERVICE_ACCOUNT }}
           create_credentials_file: true
           export_environment_variables: true
 
@@ -96,6 +95,16 @@ jobs:
           set -Eeuo pipefail
           npx firebase-tools@15.29.0 projects:list --json --non-interactive > /tmp/firebase-projects.json
           node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/firebase-projects.json','utf8'));const rows=x.result||[];if(!rows.some(p=>p.projectId==='yhct-social-260902-42a4')){console.error('FIREBASE_PROJECT_ACCESS=DENIED');process.exit(1)}console.log('FIREBASE_PROJECT_ACCESS=PASS')"
+
+      - name: Export Firebase Web config
+        if: steps.auth-mode.outputs.mode == 'wif' || steps.auth-mode.outputs.mode == 'service-account-json'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npx firebase-tools@15.29.0 apps:list --project yhct-social-260902-42a4 --json --non-interactive > /tmp/firebase-apps.json
+          APP_ID="$(node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/firebase-apps.json','utf8'));const rows=x.result||[];const app=rows.find(a=>String(a.platform||'').toUpperCase()==='WEB');if(!app){process.exit(2)}process.stdout.write(app.appId)")"
+          npx firebase-tools@15.29.0 apps:sdkconfig WEB "$APP_ID" --project yhct-social-260902-42a4 --json --non-interactive > /tmp/firebase-sdk.json
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/firebase-sdk.json','utf8'));const c=x.result&&x.result.sdkConfig;if(!c||c.projectId!=='yhct-social-260902-42a4'){console.error('FIREBASE_WEB_CONFIG=INVALID');process.exit(1)}console.log('FIREBASE_WEB_CONFIG=PASS');console.log('FIREBASE_WEB_CONFIG_JSON='+JSON.stringify(c))"
 
       - name: Verify Firebase project access with legacy token
         if: steps.auth-mode.outputs.mode == 'firebase-token'
