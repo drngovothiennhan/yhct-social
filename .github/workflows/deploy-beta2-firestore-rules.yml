@@ -1,0 +1,45 @@
+name: Deploy Beta 2.0 Firebase Rules
+
+on:
+  push:
+    branches: [beta/2.0-module-a]
+    paths:
+      - '.github/workflows/deploy-beta2-firestore-rules.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOOGLE_CLOUD_PROJECT: yhct-social-260902-42a4
+      GCLOUD_PROJECT: yhct-social-260902-42a4
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+      - run: npm install --no-audit --no-fund
+      - name: Validate current branch
+        run: npm run check
+      - name: Authenticate Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: yhct-social-260902-42a4
+          workload_identity_provider: projects/244889451934/locations/global/workloadIdentityPools/github-yhct-social/providers/github-main
+          service_account: yhct-github-deploy@yhct-social-260902-42a4.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Deploy current Firestore and Storage rules
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npx firebase-tools@15.29.0 deploy --project yhct-social-260902-42a4 --only storage,firestore:rules,firestore:indexes --non-interactive
+          echo 'BETA2_FIREBASE_RULES_DEPLOY=PASS'
+
+# Current-head deployment verification trigger.

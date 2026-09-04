@@ -22,12 +22,34 @@ service cloud.firestore {
       return get(userPath(request.auth.uid)).data;
     }
 
-    function isModerator() {
+    function hasModeratorClaim() {
+      return signedIn() && request.auth.token.role in ['mod', 'super_mod', 'admin'];
+    }
+
+    function hasSuperModeratorClaim() {
+      return signedIn() && request.auth.token.role in ['super_mod', 'admin'];
+    }
+
+    function hasAdminClaim() {
+      return signedIn() && request.auth.token.role == 'admin';
+    }
+
+    function isLegacyModerator() {
       return currentUserExists() && currentUser().role in ['moderator', 'admin'];
     }
 
+    function isModerator() {
+      return hasModeratorClaim() || isLegacyModerator();
+    }
+
+    function isSuperModerator() {
+      return hasSuperModeratorClaim()
+        || (currentUserExists() && currentUser().role == 'admin');
+    }
+
     function isAdmin() {
-      return currentUserExists() && currentUser().role == 'admin';
+      return hasAdminClaim()
+        || (currentUserExists() && currentUser().role == 'admin');
     }
 
     function isVerifiedPractitioner() {
@@ -41,11 +63,22 @@ service cloud.firestore {
     }
 
     function validRole(value) {
-      return value in ['member', 'moderator', 'admin'];
+      return value in ['member', 'moderator', 'mod', 'super_mod', 'admin'];
     }
 
     function validVerificationStatus(value) {
       return value in ['not_required', 'unsubmitted', 'pending', 'verified', 'rejected'];
+    }
+
+    function validProvisioningIdentity(before, after) {
+      return (
+          (!('memberCode' in before) && !('memberCode' in after))
+          || after.memberCode == before.memberCode
+        )
+        && (
+          (!('provisioningSource' in before) && !('provisioningSource' in after))
+          || after.provisioningSource == before.provisioningSource
+        );
     }
 
     function validUser(data) {
@@ -55,7 +88,8 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'displayName', 'photoURL', 'bio', 'specialties', 'accountType',
-          'role', 'verificationStatus', 'professionalTitle', 'createdAt', 'updatedAt'
+          'role', 'verificationStatus', 'professionalTitle', 'clubTitle',
+          'memberCode', 'provisioningSource', 'accountStatus', 'createdAt', 'updatedAt'
         ])
         && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
         && data.photoURL is string && data.photoURL.size() <= 500
@@ -65,6 +99,10 @@ service cloud.firestore {
         && validRole(data.role)
         && validVerificationStatus(data.verificationStatus)
         && data.professionalTitle is string && data.professionalTitle.size() <= 120
+        && (!('clubTitle' in data) || (data.clubTitle is string && data.clubTitle.size() <= 120))
+        && (!('memberCode' in data) || (data.memberCode is string && data.memberCode.size() <= 40))
+        && (!('provisioningSource' in data) || (data.provisioningSource is string && data.provisioningSource.size() <= 80))
+        && (!('accountStatus' in data) || data.accountStatus in ['active', 'disabled'])
         && data.createdAt is timestamp && data.updatedAt is timestamp;
     }
 
@@ -72,6 +110,8 @@ service cloud.firestore {
       return validUser(data)
         && data.role == 'member'
         && data.professionalTitle == ''
+        && !('memberCode' in data)
+        && !('provisioningSource' in data)
         && data.createdAt == request.time
         && data.updatedAt == request.time
         && (
@@ -88,6 +128,7 @@ service cloud.firestore {
         ])
         && after.role == before.role
         && after.professionalTitle == before.professionalTitle
+        && validProvisioningIdentity(before, after)
         && after.createdAt == before.createdAt
         && after.updatedAt == request.time
         && (
@@ -105,6 +146,7 @@ service cloud.firestore {
 
     function validAdminUserUpdate(before, after) {
       return validUser(after)
+        && validProvisioningIdentity(before, after)
         && after.createdAt == before.createdAt
         && after.updatedAt == request.time
         && (
@@ -248,9 +290,14 @@ service cloud.firestore {
       allow delete: if isAdmin() && request.auth.uid != uid;
 
       match /private/{documentId} {
-        allow read: if isOwner(uid) || isModerator();
-        allow create, update: if (isOwner(uid) || isModerator()) && documentId == 'verification';
-        allow delete: if isOwner(uid) || isAdmin();
+        allow read: if documentId == 'access'
+          ? (isOwner(uid) || isModerator())
+          : (isOwner(uid) || isModerator());
+        allow create, update: if documentId == 'verification'
+          && (isOwner(uid) || isModerator());
+        allow delete: if documentId == 'verification'
+          && (isOwner(uid) || isAdmin());
+        allow write: if false;
       }
     }
 
@@ -319,6 +366,10 @@ service cloud.firestore {
     match /activities/{activityId} {
       allow read: if resource.data.status == 'published' || isModerator();
       allow write: if false;
+    }
+
+    match /clubProvisioning/{memberCode} {
+      allow read, write: if false;
     }
 
     match /{document=**} {
