@@ -117,26 +117,15 @@ Canonical IDs:
 
 Firestore Rules validate that `reporterUid == request.auth.uid`, the target identifiers match the document ID contract, and the initial state is `status='open'` with all moderator-owned resolution fields empty.
 
-A reporter cannot change `status`, assignment, resolution, resolver, or timestamps controlled by moderation. Module C treats a report as one durable report record per reporter/target. If a resolved report needs reconsideration, a moderator may reopen it through ACC; the client does not create a second report for the same target.
+A reporter cannot change `status`, assignment, resolution, resolver, or timestamps controlled by moderation. Module C treats a report as one durable report record per reporter/target. If a resolved report needs reconsideration, a `super_mod` or `admin` may reopen it through ACC; the client does not create a second report for the same target.
 
 ### Report creation boundary
 
 Only authenticated club members with `mustChangePassword=false` may create reports.
 
-Clients may set only:
+Clients may set only target identifiers, an allowed `reasonCode`, `details`, and their own `reporterUid`. `details` is optional but must be a string of at most 2,000 characters. All moderation lifecycle fields start in the exact server/rules-approved initial state.
 
-- target identifiers.
-- allowed `reasonCode`.
-- bounded `details`.
-- their own `reporterUid`.
-
-Rules or trusted service code set/validate all initial lifecycle fields.
-
-Recommended limits:
-
-- `details`: maximum 2,000 characters.
-- reason code must be from the fixed enum.
-- report target must reference an existing post/comment that is readable to the reporter at report time where rule constraints permit verification.
+The target must reference an existing post/comment that the reporter may read at report time when Firestore Rules can validate the target safely.
 
 ## Moderation lifecycle
 
@@ -153,24 +142,21 @@ Module C maps moderation resolutions as follows:
 - `soft_delete`: target status becomes `deleted`; report becomes `resolved`.
 - `dismiss`: target status does not change; report becomes `dismissed`.
 
-A moderation reason is mandatory for `hide`, `soft_delete`, restore, and verification rejection. ACC also records a reason for `keep`/`dismiss` so decisions are reviewable.
+A moderation reason is mandatory for `hide`, `soft_delete`, restore, verification rejection, `keep`, and `dismiss` so every decision is reviewable.
 
 ### Restoration
 
-- `mod` may hide or soft-delete active content and may restore content that the same moderator hid during the current operational policy only when no higher-level lock exists.
-- `super_mod` and `admin` may restore any Module C moderated post/comment from `hidden` or `deleted` to `active` when policy permits.
-- restoration is always audited.
+Module C v1 uses a strict restore boundary:
 
-Implementation may simplify the first release by routing all restore operations to `super_mod/admin`; this stricter form is acceptable and preferred if it reduces ambiguous authority.
+- `mod` cannot restore `hidden` or `deleted` content.
+- only `super_mod` or `admin` may restore Module C moderated post/comment content to `active`.
+- restoration always requires a reason and creates an audit event.
+
+This avoids ambiguous ownership rules for reversals and provides a clear escalation path.
 
 ### Queue states
 
-ACC moderation queue supports:
-
-- open.
-- reviewing.
-- resolved.
-- dismissed.
+ACC moderation queue supports `open`, `reviewing`, `resolved`, and `dismissed`.
 
 Default queue view is `open`, ordered oldest-first so reports cannot starve indefinitely. Secondary views may filter by target type, reason code, status, or assignee.
 
@@ -181,26 +167,27 @@ Queries are cursor-based and bounded; no unbounded collection scan is accepted.
 ### `member`
 
 - create one report per exact target.
-- read only their own report status if the product UI exposes it.
+- read only their own report status if exposed by the product UI.
 - cannot perform moderation actions.
 
 ### `mod`
 
 - enter ACC after existing claim/session checks.
 - read moderation queue.
-- assign a report to self where assignment is implemented.
+- assign an open report to self.
+- transition an assigned/open report to `reviewing`.
 - resolve/dismiss reports.
 - hide or soft-delete posts/comments.
+- cannot restore moderated content.
 - cannot approve practitioner verification.
-- cannot modify admin/super_mod authority beyond existing member policy.
 
 ### `super_mod`
 
 - all mod moderation permissions.
 - resolve escalated reports.
+- reopen resolved/dismissed reports.
 - restore moderated content.
 - approve/reject practitioner verification.
-- cannot change production system trust boundaries.
 
 ### `admin`
 
@@ -209,7 +196,7 @@ Queries are cursor-based and bounded; no unbounded collection scan is accepted.
 - read full Module C audit log.
 - restore content and resolve escalations.
 
-The ACC server must re-check role for every privileged request. Role-aware UI visibility is not authorization.
+The ACC server re-checks role for every privileged request. Role-aware UI visibility is not authorization.
 
 ## ACC server API boundaries
 
@@ -225,7 +212,7 @@ Expected route groups:
 - `PATCH /api/verification/requests/[uid]`
 - `GET /api/audit`
 
-Exact route decomposition may vary during implementation if existing Next.js route conventions make a smaller interface clearer, but responsibilities and authorization boundaries may not be weakened.
+Exact file-level route decomposition may follow existing Next.js conventions, but responsibilities and authorization boundaries may not be weakened.
 
 Every privileged endpoint must:
 
@@ -234,8 +221,8 @@ Every privileged endpoint must:
 3. reject `mustChangePassword=true`.
 4. require the minimum role for the requested action.
 5. validate payload enums, lengths, IDs, and state transition.
-6. update target state transactionally where multiple Firestore documents must remain consistent.
-7. write an audit event for successful privileged state changes.
+6. update target state transactionally whenever multiple Firestore documents must remain consistent.
+7. write an audit event for every successful privileged state change introduced by Module C.
 8. return sanitized errors without leaking tokens, credentials, private certificate URLs, or server internals.
 
 ## Practitioner verification model
@@ -249,13 +236,13 @@ Every privileged endpoint must:
 - `verified`
 - `rejected`
 
-Existing legacy values are normalized during reads/updates without broad destructive migration.
+Existing legacy empty/missing verification state is read as `unsubmitted`; no destructive production backfill is required for Module C.
 
 ### `verificationRequests/{uid}`
 
 One current verification request document per practitioner candidate.
 
-Expected fields:
+Fields:
 
 - `uid: string`
 - `status: 'pending' | 'verified' | 'rejected'`
@@ -268,18 +255,18 @@ Expected fields:
 - `decisionReason: string | null`
 - `attempt: number`
 
-`VerificationEvidence` stores durable private references only, for example:
+`VerificationEvidence` stores durable private references only:
 
 - `storagePath: string`
 - `type: 'certificate' | 'license' | 'other'`
 - `label: string`
 - `uploadedAt: Timestamp`
 
-Do not store public download URLs for private certificates in Firestore.
+No public download URL for private certificates is stored in Firestore.
 
 ### Evidence storage
 
-Verification evidence remains under the existing private certificate/evidence subtree owned by the submitting user. Storage Rules allow the owner to upload/read their own evidence and eligible moderators to read it according to existing private-storage policy.
+Verification evidence remains under the existing private certificate/evidence subtree owned by the submitting user. Storage Rules allow the owner to upload/read their own evidence. ACC reads moderator-eligible evidence through trusted server-side access after role verification rather than exposing another user's private evidence directly to the browser through public Storage Rules.
 
 The public application cannot read another member's evidence.
 
@@ -287,17 +274,17 @@ The public application cannot read another member's evidence.
 
 A practitioner candidate may create/update their own request only into `pending` using allowed self-service fields and private evidence paths under their own Storage subtree.
 
-After rejection, a user may resubmit by incrementing `attempt`, replacing/adding permitted evidence metadata, clearing prior decision fields, and returning to `pending`. Rules must prevent the client from choosing `verified` or setting `decidedBy/decidedAt`.
+After rejection, a user may resubmit by incrementing `attempt`, replacing/adding permitted evidence metadata, clearing prior decision fields, and returning to `pending`. The client cannot choose `verified` or set `decidedBy/decidedAt`.
 
 ### Decision transaction
 
-`super_mod` or `admin` verification decisions update, in one trusted transaction where practical:
+A `super_mod` or `admin` verification decision must execute as one trusted Firestore transaction covering:
 
-1. `verificationRequests/{uid}.status` and decision metadata.
+1. `verificationRequests/{uid}` status and decision metadata.
 2. `users/{uid}.verificationStatus`.
-3. append an `adminAudit` event after/within the trusted operation using a deterministic operation identifier if retry safety requires it.
+3. retry-safe creation of the matching `adminAudit` record using a deterministic operation identifier.
 
-A failed transaction must not leave the request verified while the public profile remains pending, or the reverse.
+The transaction either commits all three effects or none. A request may be approved/rejected only from `pending`.
 
 ## Audit model
 
@@ -318,26 +305,28 @@ Required fields:
 - `createdAt: Timestamp`
 - `operationId: string`
 
-Audit summaries must contain only the minimum state required to reconstruct the administrative decision. They must not duplicate raw certificate files, activation passwords, private phone numbers, ID tokens, service credentials, or other secrets.
+Audit summaries contain only the minimum state required to reconstruct the administrative decision. They never duplicate raw certificate files, activation passwords, private contact data, ID tokens, service credentials, or other secrets.
 
 ### Append-only rule
 
 Public Firestore clients have no create/update/delete permission on `adminAudit`.
 
-Normal ACC UI exposes read access through trusted server APIs only. Module C full audit browsing is admin-only. Server code may additionally return target-specific decision history to lower privileged roles when needed for moderation context, but never the unrestricted audit collection.
+Full audit browsing in Module C is admin-only and served through trusted ACC server APIs. `mod` and `super_mod` may receive only target-specific audit context that the API explicitly returns for an authorized moderation/verification case.
 
-`operationId` supports retry-safe audit creation for transactional server actions so a retried API request does not create contradictory duplicate audit entries.
+`operationId` is unique per logical privileged operation and is used as the deterministic audit document identity or equivalent idempotency key so retries cannot create contradictory duplicate audit events.
 
 ## Data consistency and concurrency
 
-Moderation and verification APIs must reject invalid state transitions rather than blindly overwrite current state.
+Moderation and verification APIs reject invalid state transitions rather than blindly overwrite current state.
 
-Examples:
+Required behavior:
 
-- a resolved report cannot be resolved a second time without an explicit reopen/escalation path.
-- a report claimed by another moderator cannot silently lose assignment when optimistic concurrency is used.
-- a verification request may be approved only from `pending`.
-- moderation of a target already `deleted` returns an idempotent/no-op result or a conflict according to the service contract; it must not create impossible lifecycle states.
+- only `open` reports may be assigned or moved to `reviewing`.
+- only `open` or `reviewing` reports may be resolved/dismissed.
+- only `super_mod/admin` may reopen `resolved/dismissed` reports.
+- a report assigned to another moderator cannot be silently reassigned by a `mod`.
+- verification may be approved/rejected only from `pending`.
+- moderation of an already-identical target state returns an idempotent success only when the same `operationId` is replayed; otherwise incompatible transitions return a conflict.
 
 Firestore transactions are required when one privileged action changes multiple documents whose states must agree.
 
@@ -345,7 +334,7 @@ Firestore transactions are required when one privileged action changes multiple 
 
 The current large `admin-portal/app/dashboard.tsx` is decomposed during Module C because it sits directly in the area being extended.
 
-Expected focused boundaries:
+Focused boundaries:
 
 - authenticated ACC shell/navigation.
 - login/password-rotation gate.
@@ -358,19 +347,19 @@ Expected focused boundaries:
 - typed API client utilities.
 - domain validation/transition helpers under `admin-portal/lib`.
 
-Route components orchestrate data and presentation. Role/state transition policy belongs in shared policy/domain units and trusted API handlers, not duplicated across buttons.
+Route components orchestrate data and presentation. Role/state-transition policy belongs in shared policy/domain units and trusted API handlers, not duplicated across buttons.
 
-This is a targeted refactor only. Module C must not rewrite unrelated public social components merely for style consistency.
+This is a targeted refactor only. Module C does not rewrite unrelated public social components for style consistency.
 
 ## Public app changes
 
 Public application changes are deliberately narrow:
 
 - add `Report` action to eligible post/comment UI.
-- present reason selection and bounded optional details.
+- present reason selection and optional `details` up to 2,000 characters.
 - prevent duplicate submission UX for the deterministic report record.
 - show safe success/error feedback.
-- expose practitioner verification submission/status only if the existing profile/onboarding structure has the required practitioner state.
+- expose practitioner verification submission/status within the current profile/onboarding practitioner flow.
 
 No ACC administrative UI or Firebase Admin credential enters the public bundle.
 
@@ -388,37 +377,37 @@ Module C rules must prove at least:
 8. verification evidence paths must belong to the submitting UID.
 9. existing role/account/provisioning/private-document protections remain intact.
 10. existing social post/comment ownership protections remain intact.
-11. `mustChangePassword=true` accounts cannot submit sensitive member mutations governed by Module C.
+11. `mustChangePassword=true` accounts cannot submit Module C member mutations.
+12. report `details` cannot exceed 2,000 characters.
 
 Privileged ACC writes using Firebase Admin do not rely on client Rules for authorization, so API authorization contract tests are mandatory in addition to Firestore Rules tests.
 
 ## Storage Rules requirements
 
-Module C must retain private certificate/evidence guarantees:
+Module C retains private certificate/evidence guarantees:
 
-- evidence owner may upload allowed evidence to their own subtree.
+- evidence owner may upload/read allowed evidence in their own subtree.
 - ordinary members cannot read another member's evidence.
-- eligible moderation roles may read evidence only through the intended private policy.
 - no public unauthenticated evidence reads.
-- size/type limits remain bounded.
+- ACC moderator access to another user's evidence is brokered by trusted server-side code after role verification.
+- evidence size/type limits remain bounded by the existing private-evidence policy or a stricter tested Module C rule.
 - social media rules from Module B remain unchanged unless a tested compatibility adjustment is required.
 
 ## Query and index requirements
 
-Likely Module C composite indexes include bounded queue queries such as:
+Implemented queries use only the indexes they actually require. Expected queue shapes are:
 
 - `reports(status, createdAt asc)`
-- `reports(status, targetType, createdAt asc)`
-- `reports(status, reasonCode, createdAt asc)`
-- `verificationRequests(status, submittedAt asc)`
-- `adminAudit(createdAt desc)`
-- optional admin audit filters by `targetType` or `actorUid` if UI requires them.
+- `reports(status, targetType, createdAt asc)` when target-type filtering is implemented.
+- `reports(status, reasonCode, createdAt asc)` when reason filtering is implemented.
+- `verificationRequests(status, submittedAt asc)`.
+- `adminAudit(createdAt desc)`.
 
-Only indexes required by implemented queries are committed. No speculative index explosion.
+No speculative index is added without a corresponding production query.
 
 ## Error handling
 
-ACC must distinguish:
+ACC distinguishes:
 
 - authentication required.
 - password rotation required.
@@ -429,21 +418,21 @@ ACC must distinguish:
 - private evidence unavailable.
 - transient Firebase/network failure.
 
-Privileged action buttons are disabled while the same action is in flight. Repeated submissions use idempotent operation IDs or transaction preconditions where necessary.
+Privileged action controls are disabled while the same action is in flight. Repeated submissions use deterministic operation IDs and transactional state checks.
 
 User-visible messages never include Firebase Admin stack traces, private evidence URLs, ID tokens, workload identity details, or service-account material.
 
 ## Performance and scale targets
 
-Module C targets the current club scale of hundreds of members with room for low-thousands without adding unnecessary queue infrastructure.
+Module C targets hundreds to low-thousands of members without adding queue infrastructure outside Firebase/Vercel.
 
 Requirements:
 
-- pagination/cursors for reports, verification requests, members, and audit history.
-- default page sizes bounded to approximately 20–50 records.
-- no unbounded `get()` across entire moderation/audit collections in normal ACC pages.
-- no N+1 download of private evidence while rendering queue rows; evidence is loaded only on request detail.
-- report queue does not attach global realtime listeners unless demonstrated necessary.
+- cursor pagination for reports, verification requests, members, and audit history.
+- default page size 20; API hard maximum 50.
+- no unbounded reads across moderation/audit collections in normal ACC pages.
+- no N+1 private evidence download while rendering queue rows; evidence is loaded only for a selected request detail.
+- report queue uses request/refresh pagination, not a global realtime listener.
 - admin audit stores compact summaries, not full content snapshots or files.
 
 ## Security and privacy constraints
@@ -465,7 +454,7 @@ Certificate/evidence access remains purpose-limited. Audit records store adminis
 ### Public/domain tests
 
 - deterministic report ID generation.
-- report validation and length limits.
+- report validation and exact length limit.
 - report duplicate/idempotent behavior.
 - practitioner request validation and self-service transitions.
 
@@ -481,9 +470,10 @@ Certificate/evidence access remains purpose-limited. Audit records store adminis
 - token and `mustChangePassword` gates.
 - moderation state machine.
 - invalid transition conflicts.
+- restore restricted to `super_mod/admin`.
 - practitioner decision authority.
 - transactional update contracts.
-- audit event generation and operation-id idempotency.
+- audit event generation and operation-ID idempotency.
 - sanitized error responses.
 
 ### UI contract/component tests
@@ -505,7 +495,7 @@ Module C is not accepted unless all are green:
 - root `npm run typecheck`.
 - root `npm run lint`.
 - root production `npm run build`.
-- `admin-portal` tests/check/typecheck/lint as defined by its package scripts.
+- `admin-portal` tests/typecheck/lint/check according to its package scripts.
 - `admin-portal` production build.
 - Firestore/Storage security-contract tests.
 - CI on the Module C branch/PR.
@@ -521,7 +511,7 @@ Module C changes flow through normal branch/PR integration. Production deploymen
 - no long-lived Google service-account key is introduced.
 - no production Firestore migration is required merely to add Module C collections because new documents are created lazily by product workflows.
 
-If a schema backfill becomes demonstrably necessary during implementation, it is a separate migration design/gate and must not be smuggled into a UI deployment.
+If implementation proves that a schema backfill is necessary, that becomes a separate migration design and release gate before any production data mutation.
 
 ## Acceptance criteria
 
@@ -531,10 +521,11 @@ Module C is complete when all of the following are verified:
 - clients cannot control report moderation lifecycle fields.
 - mod/super_mod/admin can access the ACC moderation queue according to role.
 - authorized moderators can keep, hide, dismiss, or soft-delete reported content without hard deletion.
+- only `super_mod/admin` can restore moderated content.
 - invalid moderation transitions are rejected deterministically.
 - practitioner candidates can submit/resubmit private evidence without self-verifying.
 - only `super_mod/admin` can approve/reject practitioner verification.
-- verification request state and public profile verification state remain consistent.
+- verification request state and public profile verification state remain transactionally consistent.
 - every Module C privileged state-changing action creates a retry-safe append-only audit event.
 - ordinary clients cannot create, update, or delete audit records.
 - admin can browse bounded audit history.
