@@ -107,14 +107,18 @@ jobs:
         run: |
           set -Eeuo pipefail
           test -s /tmp/yhct-beta2-activation.csv
-          curl --fail --silent --show-error --location \
-            --request PATCH \
-            --header "Authorization: Bearer $DRIVE_ACCESS_TOKEN" \
-            --header 'Content-Type: text/csv; charset=utf-8' \
-            --data-binary @/tmp/yhct-beta2-activation.csv \
-            "https://www.googleapis.com/upload/drive/v3/files/${ACTIVATION_DRIVE_FILE_ID}?uploadType=media" \
-            --output /tmp/drive-update.json
-          echo 'BETA2_ACTIVATION_PRIVATE_STORE=PASS'
+          if [[ "$(wc -l < /tmp/yhct-beta2-activation.csv)" -gt 1 ]]; then
+            curl --fail --silent --show-error --location \
+              --request PATCH \
+              --header "Authorization: Bearer $DRIVE_ACCESS_TOKEN" \
+              --header 'Content-Type: text/csv; charset=utf-8' \
+              --data-binary @/tmp/yhct-beta2-activation.csv \
+              "https://www.googleapis.com/upload/drive/v3/files/${ACTIVATION_DRIVE_FILE_ID}?uploadType=media" \
+              --output /tmp/drive-update.json
+            echo 'BETA2_ACTIVATION_PRIVATE_STORE=PASS'
+          else
+            echo 'BETA2_ACTIVATION_PRIVATE_STORE=SKIP no_new_credentials'
+          fi
 
       - name: Verify admin account claims
         shell: bash
