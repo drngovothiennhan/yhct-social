@@ -12,22 +12,24 @@ export function Feed() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  useEffect(() => subscribePublishedPosts(
+    filter,
+    (nextPosts) => {
+      setPosts(nextPosts);
+      setLoading(false);
+    },
+    (snapshotError) => {
+      setError(snapshotError.message || 'Không thể tải bảng tin.');
+      setLoading(false);
+    },
+  ), [filter]);
+
+  function selectFilter(value: PostType | 'all') {
+    if (value === filter) return;
     setLoading(true);
     setError(null);
-
-    return subscribePublishedPosts(
-      filter,
-      (nextPosts) => {
-        setPosts(nextPosts);
-        setLoading(false);
-      },
-      (snapshotError) => {
-        setError(snapshotError.message || 'Không thể tải bảng tin.');
-        setLoading(false);
-      },
-    );
-  }, [filter]);
+    setFilter(value);
+  }
 
   return (
     <section>
@@ -42,7 +44,7 @@ export function Feed() {
             key={value}
             type="button"
             className={filter === value ? 'filter-chip-active' : 'filter-chip'}
-            onClick={() => setFilter(value)}
+            onClick={() => selectFilter(value)}
           >
             {label}
           </button>
