@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { accApi } from '@/lib/api-client';
 
-const RELEASE_SHA = '6c7253e9c1eac46ae2581a126e2f40d044a7bde8';
-
 type RecoveryMode = 'normal' | 'degraded' | 'safe_mode' | 'restoring';
 type RecoveryState = { mode?: RecoveryMode; readOnlyPublic?: boolean; updatedAt?: unknown };
 type Backup = { id: string; state?: string; databaseId?: string; snapshotTime?: string | null; expireTime?: string | null };
@@ -85,14 +83,14 @@ export function RecoveryControlCenter({ user, role }: { user: User; role: string
   async function createCheckpoint() {
     await run('checkpoint', () => accApi(user, '/api/recovery/checkpoints', {
       method: 'POST',
-      body: JSON.stringify({ operationId: operationId('checkpoint'), reason, sourceReleaseSha: RELEASE_SHA }),
+      body: JSON.stringify({ operationId: operationId('checkpoint'), reason }),
     }));
   }
 
   async function restoreBackup(backupId: string) {
     await run(`restore-${backupId}`, () => accApi(user, '/api/recovery/restores', {
       method: 'POST',
-      body: JSON.stringify({ operationId: operationId('restore'), reason, backupId, sourceReleaseSha: RELEASE_SHA }),
+      body: JSON.stringify({ operationId: operationId('restore'), reason, backupId }),
     }));
   }
 
