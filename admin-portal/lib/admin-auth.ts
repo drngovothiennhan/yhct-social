@@ -1,6 +1,6 @@
 import type { DecodedIdToken } from 'firebase-admin/auth';
 import { adminAuth } from './firebase-admin';
-import { assertAccClaims, claimsFromDecodedToken, type AccClaims } from './access-policy';
+import { assertAccClaims, assertRecentAuthentication, claimsFromDecodedToken, type AccClaims } from './access-policy';
 import type { AccRole } from './rbac';
 
 export class AccHttpError extends Error {
@@ -23,12 +23,36 @@ export interface AccPrincipal {
 }
 
 export async function requireFirebaseUser(request: Request): Promise<DecodedIdToken> {
+  const pathname = new URL(request.url).pathname;
+  if (pathname === '/api/session/change-password') {
+    return requireRecentFirebaseUser(request);
+  }
+
   try {
     return await adminAuth().verifyIdToken(bearerToken(request), true);
   } catch (error) {
     if (error instanceof AccHttpError) throw error;
+    console.warn('ACC_AUTH_VERIFY_FAILED', error instanceof Error ? error.name : 'unknown');
     throw new AccHttpError(401, 'UNAUTHORIZED');
   }
+}
+
+export async function requireRecentFirebaseUser(request: Request): Promise<DecodedIdToken> {
+  let decoded: DecodedIdToken;
+  try {
+    decoded = await adminAuth().verifyIdToken(bearerToken(request));
+  } catch (error) {
+    if (error instanceof AccHttpError) throw error;
+    console.warn('ACC_RECENT_AUTH_VERIFY_FAILED', error instanceof Error ? error.name : 'unknown');
+    throw new AccHttpError(401, 'UNAUTHORIZED');
+  }
+
+  try {
+    assertRecentAuthentication(decoded as unknown as Record<string, unknown>);
+  } catch {
+    throw new AccHttpError(401, 'RECENT_AUTH_REQUIRED');
+  }
+  return decoded;
 }
 
 export async function requireAccRole(request: Request, minimumRole: AccRole): Promise<AccPrincipal> {

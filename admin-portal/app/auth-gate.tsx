@@ -55,10 +55,11 @@ export function AuthGate({ children }: { children: (session: AccSession) => Reac
     setBusy(true);
     setMessage('');
     try {
+      await user.getIdToken(true);
       await accApi(user, '/api/session/change-password', { method: 'POST', body: JSON.stringify({ password: replacementPassword }) });
-      const refreshed = await user.getIdTokenResult(true);
-      setClaims(selectClaims(refreshed.claims as Record<string, unknown>));
       setReplacementPassword('');
+      setMessage('Đã đổi mật khẩu. Vui lòng đăng nhập lại bằng mật khẩu mới.');
+      await signOut(auth);
     } catch {
       setMessage('Không thể đổi mật khẩu.');
     } finally {
@@ -68,7 +69,7 @@ export function AuthGate({ children }: { children: (session: AccSession) => Reac
 
   if (!user) return <main className="screen"><section className="login-card"><p className="eyebrow">YHCT SOCIAL · ACC</p><h1>Admin Control Center</h1><form onSubmit={login} className="stack"><label>MSSV hoặc email<input value={identifier} onChange={(e) => setIdentifier(e.target.value)} required /></label><label>Mật khẩu<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>{message ? <p className="error">{message}</p> : null}<button disabled={busy}>{busy ? 'Đang xác thực…' : 'Đăng nhập ACC'}</button></form></section></main>;
 
-  if (claims?.mustChangePassword === true) return <main className="screen"><section className="login-card"><p className="eyebrow">BẢO MẬT LẦN ĐẦU</p><h1>Đổi mật khẩu kích hoạt</h1><form onSubmit={rotatePassword} className="stack"><label>Mật khẩu mới<input type="password" minLength={10} value={replacementPassword} onChange={(e) => setReplacementPassword(e.target.value)} required /></label>{message ? <p className="error">{message}</p> : null}<button disabled={busy}>{busy ? 'Đang cập nhật…' : 'Đổi mật khẩu và tiếp tục'}</button></form><button className="link-button" onClick={() => void signOut(auth)}>Đăng xuất</button></section></main>;
+  if (claims?.mustChangePassword === true) return <main className="screen"><section className="login-card"><p className="eyebrow">BẢO MẬT LẦN ĐẦU</p><h1>Đổi mật khẩu kích hoạt</h1><form onSubmit={rotatePassword} className="stack"><label>Mật khẩu mới<input type="password" minLength={10} value={replacementPassword} onChange={(e) => setReplacementPassword(e.target.value)} required /></label>{message ? <p className="error">{message}</p> : null}<button disabled={busy}>{busy ? 'Đang cập nhật…' : 'Đổi mật khẩu và đăng nhập lại'}</button></form><button className="link-button" onClick={() => void signOut(auth)}>Đăng xuất</button></section></main>;
 
   if (!canEnter) return <main className="screen"><section className="login-card"><h1>Không có quyền ACC</h1><p className="muted">Tài khoản hiện tại không thuộc nhóm quản trị CLB.</p><button onClick={() => void signOut(auth)}>Đăng xuất</button></section></main>;
 

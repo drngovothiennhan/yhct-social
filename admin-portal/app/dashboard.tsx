@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { User } from 'firebase/auth';
+import { useEffect, useState, type FormEvent } from 'react';
+import { EmailAuthProvider, reauthenticateWithCredential, signOut, type User } from 'firebase/auth';
+import { auth } from '@/lib/firebase-client';
 import { accApi } from '@/lib/api-client';
 import { canDecideVerification } from '@/lib/module-c-policy';
 
@@ -20,6 +21,65 @@ export function Dashboard({ role }: { user: User; role: string }) {
     <section className="stats"><article><b>Backend</b><span>Firebase Admin</span></article><article><b>Quyền hiện tại</b><span>{role}</span></article><article><b>Module C</b><span>Moderation Control Plane</span></article></section>
     <section className="panel"><h2>Tổng quan vận hành</h2><p className="muted">Sử dụng thanh điều hướng để quản lý thành viên, kiểm duyệt báo cáo, xác minh chuyên môn, nhật ký và hệ thống.</p></section>
   </>;
+}
+
+export function SecurityPanel({ user }: { user: User }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [nextPassword, setNextPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function changePassword(event: FormEvent) {
+    event.preventDefault();
+    setMessage('');
+    if (nextPassword !== confirmPassword) {
+      setMessage('Xác nhận mật khẩu mới chưa khớp.');
+      return;
+    }
+    if (!user.email) {
+      setMessage('Tài khoản không có email xác thực.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+      await user.getIdToken(true);
+      await accApi(user, '/api/session/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ password: nextPassword }),
+      });
+      setCurrentPassword('');
+      setNextPassword('');
+      setConfirmPassword('');
+      setMessage('Đã đổi mật khẩu. Vui lòng đăng nhập lại.');
+      await signOut(auth);
+    } catch (error) {
+      const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+      if (code.includes('wrong-password') || code.includes('invalid-credential')) {
+        setMessage('Mật khẩu hiện tại không đúng.');
+      } else if (error instanceof Error && error.message === 'RECENT_AUTH_REQUIRED') {
+        setMessage('Phiên xác thực đã cũ. Vui lòng thử lại.');
+      } else {
+        setMessage('Không thể đổi mật khẩu.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <section className="panel">
+    <div className="panel-head"><div><h2>Đổi mật khẩu ACC</h2><p>Mật khẩu hiện tại chỉ được dùng để xác thực trực tiếp với Firebase và không được gửi tới API ACC.</p></div></div>
+    <form className="stack" onSubmit={changePassword}>
+      <label>Mật khẩu hiện tại<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label>
+      <label>Mật khẩu mới<input type="password" autoComplete="new-password" minLength={10} value={nextPassword} onChange={(event) => setNextPassword(event.target.value)} required /></label>
+      <label>Xác nhận mật khẩu mới<input type="password" autoComplete="new-password" minLength={10} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></label>
+      {message ? <p className="notice">{message}</p> : null}
+      <button disabled={busy}>{busy ? 'Đang cập nhật…' : 'Đổi mật khẩu'}</button>
+    </form>
+  </section>;
 }
 
 export function MembersPanel({ user, role }: { user: User; role: string }) {

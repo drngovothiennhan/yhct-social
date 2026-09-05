@@ -14,6 +14,18 @@ export function claimsFromDecodedToken(token: Record<string, unknown>): AccClaim
   };
 }
 
+export function assertRecentAuthentication(
+  token: Record<string, unknown>,
+  nowSeconds = Math.floor(Date.now() / 1000),
+  maxAgeSeconds = 300,
+): void {
+  const authTime = typeof token.auth_time === 'number' ? token.auth_time : Number.NaN;
+  const age = nowSeconds - authTime;
+  if (!Number.isFinite(authTime) || authTime <= 0 || age < -60 || age > maxAgeSeconds) {
+    throw new Error('RECENT_AUTH_REQUIRED');
+  }
+}
+
 export function assertAccClaims(claims: AccClaims, minimumRole: AccRole): void {
   if (claims.mustChangePassword) {
     throw new Error('403 PASSWORD_ROTATION_REQUIRED');

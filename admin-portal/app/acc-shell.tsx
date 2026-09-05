@@ -14,6 +14,7 @@ const destinations = [
   ['/recovery', 'Khôi phục'],
   ['/audit', 'Nhật ký'],
   ['/system', 'Hệ thống'],
+  ['/security', 'Đổi mật khẩu'],
 ] as const;
 
 export function AccShell({ role, children }: { role: string; children: ReactNode }) {
