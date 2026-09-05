@@ -24,6 +24,16 @@ test('ACC shell identifies the official v2.0 release without beta labeling', asy
   assert.doesNotMatch(shell, /Beta 2\.0/);
 });
 
+test('ACC production deploy is main-only and validates before deploying', async () => {
+  const workflow = await readProjectFile('.github/workflows/deploy-admin-portal.yml');
+  assert.match(workflow, /branches:\s*\[main\]/);
+  assert.match(workflow, /if:\s*github\.ref == 'refs\/heads\/main'/);
+  assert.doesNotMatch(workflow, /branches:\s*\[beta\/2\.0-module-a\]/);
+  assert.match(workflow, /npm run check/);
+  assert.match(workflow, /--prod/);
+  assert.doesNotMatch(workflow, /FIREBASE_TOKEN|private_key|service_account\s*:/i);
+});
+
 test('modern app-web manifest exposes standalone install metadata', async () => {
   const manifest = await readProjectFile('app/manifest.ts');
   assert.match(manifest, /name:\s*['"]YHCT Social['"]/);
