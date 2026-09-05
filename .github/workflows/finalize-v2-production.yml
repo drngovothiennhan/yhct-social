@@ -9,6 +9,7 @@ on:
       - '.github/workflows/deploy-admin-portal.yml'
       - '.github/workflows/provision-beta2-members.yml'
       - 'scripts/finalize-v2-e2e.mjs'
+      - 'scripts/setup-acc-wif.sh'
 
 permissions:
   contents: read
@@ -82,6 +83,10 @@ jobs:
           echo "bucket_location=$bucket_location" >> "$GITHUB_OUTPUT"
           echo "FIRESTORE_LOCATION=$firestore_location"
           echo "RECOVERY_BUCKET_LOCATION=$bucket_location"
+
+      - name: Bootstrap ACC runtime service account and Vercel WIF
+        shell: bash
+        run: bash scripts/setup-acc-wif.sh
 
       - name: Grant recovery roles to isolated ACC runtime identity
         shell: bash
