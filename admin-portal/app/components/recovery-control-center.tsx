@@ -51,7 +51,9 @@ export function RecoveryControlCenter({ user, role }: { user: User; role: string
     }
   }, [isAdmin, user]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    queueMicrotask(() => { void refresh(); });
+  }, [refresh]);
 
   async function run(name: string, action: () => Promise<unknown>) {
     if (busy) return;
