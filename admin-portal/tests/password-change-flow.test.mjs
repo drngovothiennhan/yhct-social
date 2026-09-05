@@ -8,7 +8,7 @@ const dashboard = readFileSync(new URL('../app/dashboard.tsx', import.meta.url),
 const authGate = readFileSync(new URL('../app/auth-gate.tsx', import.meta.url), 'utf8');
 const route = readFileSync(new URL('../app/api/session/change-password/route.ts', import.meta.url), 'utf8');
 const rotateStart = authGate.indexOf('async function rotatePassword');
-const rotateEnd = authGate.indexOf('if (!user) return', rotateStart);
+const rotateEnd = authGate.indexOf('\n  if (!user) return <main', rotateStart);
 const rotateBlock = authGate.slice(rotateStart, rotateEnd);
 
 test('ACC exposes a normal authenticated password-change destination', () => {
