@@ -17,3 +17,9 @@ test('ACC runtime WIF is dedicated, keyless, and production-project constrained'
   assert.match(source, /roles\/iam\.workloadIdentityUser/);
   assert.doesNotMatch(source, /keys create|service-account-key|private_key/i);
 });
+
+test('ACC runtime bootstrap does not require Service Usage Admin during production finalization', () => {
+  const source = readFileSync(scriptUrl, 'utf8');
+  assert.doesNotMatch(source, /gcloud\s+services\s+enable/);
+  assert.doesNotMatch(source, /serviceusage\.services\.enable/);
+});
