@@ -1,5 +1,5 @@
 export type AuditRole = 'mod' | 'super_mod' | 'admin';
-export type AuditTargetType = 'post' | 'comment' | 'report' | 'verification' | 'member' | 'system';
+export type AuditTargetType = 'post' | 'comment' | 'report' | 'verification' | 'member' | 'system' | 'activity' | 'participation' | 'points' | 'recognition';
 
 export interface AuditEventInput {
   operationId: string;
