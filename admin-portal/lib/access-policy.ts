@@ -27,9 +27,6 @@ export function assertRecentAuthentication(
 }
 
 export function assertAccClaims(claims: AccClaims, minimumRole: AccRole): void {
-  if (claims.mustChangePassword) {
-    throw new Error('403 PASSWORD_ROTATION_REQUIRED');
-  }
   if (!claims.clubMember || !hasMinimumAccRole(claims.role, minimumRole)) {
     throw new Error('403 FORBIDDEN');
   }

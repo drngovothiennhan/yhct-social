@@ -1,13 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   assertAccClaims,
   claimsFromDecodedToken,
 } from '../lib/access-policy.ts';
 
-test('ACC rejects member and password-rotation sessions', () => {
+const authGate = readFileSync(new URL('../app/auth-gate.tsx', import.meta.url), 'utf8');
+
+test('ACC rejects insufficient roles but does not block first login for password rotation', () => {
   assert.throws(() => assertAccClaims({ role: 'member', clubMember: true, mustChangePassword: false }, 'mod'), /403/);
-  assert.throws(() => assertAccClaims({ role: 'admin', clubMember: true, mustChangePassword: true }, 'mod'), /PASSWORD_ROTATION_REQUIRED/);
+  assert.doesNotThrow(() => assertAccClaims({ role: 'admin', clubMember: true, mustChangePassword: true }, 'mod'));
 });
 
 test('ACC accepts sufficient claims and normalizes legacy moderator', () => {
@@ -17,4 +20,10 @@ test('ACC accepts sufficient claims and normalizes legacy moderator', () => {
 
 test('club membership claim is mandatory for ACC', () => {
   assert.throws(() => assertAccClaims({ role: 'admin', clubMember: false, mustChangePassword: false }, 'mod'), /403/);
+});
+
+test('ACC auth gate does not force a first-login password change screen', () => {
+  assert.doesNotMatch(authGate, /if \(claims\?\.mustChangePassword === true\)/);
+  assert.doesNotMatch(authGate, /BẢO MẬT LẦN ĐẦU/);
+  assert.doesNotMatch(authGate, /Đổi mật khẩu kích hoạt/);
 });
