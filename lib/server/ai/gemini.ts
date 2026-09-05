@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { z, type ZodType } from 'zod';
-import { getAiConfig } from './config';
+import { getAiConfig } from './config.ts';
 
 export interface GeminiStructuredRequest<T> {
   model?: string;
