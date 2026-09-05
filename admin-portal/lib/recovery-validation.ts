@@ -46,19 +46,43 @@ function validRecoveryId(value: unknown): string {
   return id;
 }
 
+function validManifestId(value: string): string {
+  const manifestId = value.trim();
+  if (!manifestId || manifestId.includes('/') || manifestId.length > 240) throw new Error('RECOVERY_MANIFEST_NOT_READY');
+  return manifestId;
+}
+
 const CRITICAL_COLLECTIONS = ['users', 'posts', 'system'] as const;
 
-export async function validateRecoveryCandidate(manifestIdValue: string) {
-  const manifestId = manifestIdValue.trim();
-  if (!manifestId || manifestId.includes('/') || manifestId.length > 240) throw new Error('RECOVERY_MANIFEST_NOT_READY');
-  const manifestRef = adminDb().doc(`recoveryManifests/${manifestId}`);
-  const manifestSnapshot = await manifestRef.get();
+export async function validateRecoveryCandidate(input: {
+  manifestId: string;
+  operationId: unknown;
+  reason: unknown;
+}, actor: { uid: string; role: 'admin' }) {
+  const manifestId = validManifestId(input.manifestId);
+  const operationId = validateOperationId(input.operationId);
+  const reason = validateRecoveryReason(input.reason);
+  const immutableFingerprint = JSON.stringify({ action: 'recovery.manifest.validate', manifestId, reason });
+  const db = adminDb();
+  const manifestRef = db.doc(`recoveryManifests/${manifestId}`);
+  const auditRef = db.doc(`adminAudit/${operationId}`);
+
+  const [manifestSnapshot, auditSnapshot] = await Promise.all([manifestRef.get(), auditRef.get()]);
   if (!manifestSnapshot.exists) throw new Error('RECOVERY_MANIFEST_NOT_READY');
   const manifest = manifestSnapshot.data() as Record<string, unknown>;
-  if (!['completed', 'running'].includes(String(manifest.status ?? ''))) throw new Error('RECOVERY_MANIFEST_NOT_READY');
+  if (auditSnapshot.exists) {
+    const recorded = auditSnapshot.data() as Record<string, unknown>;
+    if (recorded.action === 'recovery.manifest.validate' && recorded.immutableFingerprint === immutableFingerprint) {
+      const previous = manifest.validationSummary;
+      if (!previous || typeof previous !== 'object') throw new Error('RECOVERY_OPERATION_CONFLICT');
+      return sanitizeValidationSummary(previous as Record<string, unknown>);
+    }
+    throw new Error('RECOVERY_OPERATION_CONFLICT');
+  }
+  if (String(manifest.status ?? '') !== 'completed') throw new Error('RECOVERY_MANIFEST_NOT_READY');
+
   const recoveryDatabaseId = validRecoveryId(manifest.recoveryDatabaseId);
   const recoveryDb = getFirestore(getAdminApp(), recoveryDatabaseId);
-
   let databaseReachable = true;
   let collectionRows: Array<[string, 'present' | 'missing' | 'unknown']> = [];
   try {
@@ -100,7 +124,35 @@ export async function validateRecoveryCandidate(manifestIdValue: string) {
     warnings,
     validatedAt: new Date().toISOString(),
   });
-  await manifestRef.update({ validationSummary: summary, status: schemaCompatible && databaseReachable ? 'completed' : 'failed' });
+
+  await db.runTransaction(async (transaction) => {
+    const [freshManifestSnapshot, freshAuditSnapshot] = await Promise.all([
+      transaction.get(manifestRef),
+      transaction.get(auditRef),
+    ]);
+    if (!freshManifestSnapshot.exists) throw new Error('RECOVERY_MANIFEST_NOT_READY');
+    const freshManifest = freshManifestSnapshot.data() as Record<string, unknown>;
+    if (freshAuditSnapshot.exists) {
+      const recorded = freshAuditSnapshot.data() as Record<string, unknown>;
+      if (recorded.action === 'recovery.manifest.validate' && recorded.immutableFingerprint === immutableFingerprint) return;
+      throw new Error('RECOVERY_OPERATION_CONFLICT');
+    }
+    if (String(freshManifest.status ?? '') !== 'completed') throw new Error('RECOVERY_MANIFEST_NOT_READY');
+    const nextStatus = schemaCompatible && databaseReachable ? 'completed' : 'failed';
+    transaction.update(manifestRef, { validationSummary: summary, status: nextStatus });
+    const audit = buildAuditEvent({
+      operationId,
+      actorUid: actor.uid,
+      actorRole: actor.role,
+      action: 'recovery.manifest.validate',
+      targetType: 'recovery',
+      targetId: manifestId,
+      reason,
+      before: { status: freshManifest.status ?? null },
+      after: { status: nextStatus, validationCompleted: true },
+    });
+    transaction.create(auditRef, { ...audit, createdAt: FieldValue.serverTimestamp(), immutableFingerprint });
+  });
   return summary;
 }
 
@@ -112,8 +164,7 @@ export async function decideRecoveryManifest(input: {
 }, actor: { uid: string; role: 'admin' }) {
   const operationId = validateOperationId(input.operationId);
   const reason = validateRecoveryReason(input.reason);
-  const manifestId = input.manifestId.trim();
-  if (!manifestId || manifestId.includes('/') || manifestId.length > 240) throw new Error('RECOVERY_MANIFEST_NOT_READY');
+  const manifestId = validManifestId(input.manifestId);
   if (!['verified', 'rejected'].includes(input.decision)) throw new Error('RECOVERY_VALIDATION_FAILED');
   const db = adminDb();
   const manifestRef = db.doc(`recoveryManifests/${manifestId}`);
