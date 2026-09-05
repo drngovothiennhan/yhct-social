@@ -99,12 +99,15 @@ export function RecoveryControlCenter({ user, role }: { user: User; role: string
   async function importCheckpoint(manifestId: string) {
     await run(`import-${manifestId}`, () => accApi(user, '/api/recovery/imports', {
       method: 'POST',
-      body: JSON.stringify({ operationId: operationId('import'), reason, checkpointManifestId: manifestId, sourceReleaseSha: RELEASE_SHA }),
+      body: JSON.stringify({ operationId: operationId('import'), reason, manifestId }),
     }));
   }
 
   async function validateCandidate(manifestId: string) {
-    await run(`validate-${manifestId}`, () => accApi(user, `/api/recovery/manifests/${manifestId}/validate`, { method: 'POST' }));
+    await run(`validate-${manifestId}`, () => accApi(user, `/api/recovery/manifests/${manifestId}/validate`, {
+      method: 'POST',
+      body: JSON.stringify({ operationId: operationId('validate'), reason }),
+    }));
   }
 
   async function decideCandidate(manifestId: string, decision: 'verified' | 'rejected') {
@@ -169,13 +172,13 @@ export function RecoveryControlCenter({ user, role }: { user: User; role: string
 
           <div className="panel stack">
             <h3>Xác minh recovery candidate</h3>
-            <p className="muted">Xác minh chỉ đánh dấu candidate; chuyển production vẫn là quy trình riêng và không tự động.</p>
+            <p className="muted">Xác minh chỉ chạy sau khi restore/import hoàn tất; candidate đã xác minh vẫn không tự động chuyển production.</p>
             <div className="stack">
               {candidateManifests.length ? candidateManifests.map((item) => (
                 <article className="card" key={item.manifestId}>
                   <strong>{item.manifestId}</strong><p>{item.status ?? 'unknown'}</p>
                   <div className="top-actions">
-                    <button className="secondary" disabled={Boolean(busy)} onClick={() => void validateCandidate(item.manifestId)}>Xác minh</button>
+                    <button className="secondary" disabled={Boolean(busy) || item.status !== 'completed'} onClick={() => void validateCandidate(item.manifestId)}>Xác minh</button>
                     <button disabled={Boolean(busy)} onClick={() => void decideCandidate(item.manifestId, 'verified')}>Duyệt candidate</button>
                     <button className="secondary" disabled={Boolean(busy)} onClick={() => void decideCandidate(item.manifestId, 'rejected')}>Từ chối</button>
                   </div>
