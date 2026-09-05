@@ -4,21 +4,52 @@ Mạng xã hội Y học Cổ truyền xây mới trên **Next.js App Router + F
 
 ## Trạng thái hiện tại
 
-Baseline production v1.0 được đóng trên `main`. Beta 2.0 có Module A/B/C trên luồng tích hợp, với các năng lực chính:
+Baseline production v1.0 được đóng trên `main`. Beta 2.0 có Module A/B/C/D trên luồng tích hợp, với các năng lực chính:
 
 - Firebase Auth với đăng nhập thành viên, RBAC `member < mod < super_mod < admin` và bắt buộc đổi mật khẩu tạm trước khi dùng chức năng bảo vệ.
 - Cổng xã hội gồm feed, bài viết, reactions, bình luận, danh bạ thành viên và hoạt động CLB.
 - Báo cáo bài viết/bình luận bằng ID xác định, lý do cố định và chi tiết tối đa 2.000 ký tự; client chỉ được tạo báo cáo của chính mình.
-- ACC tách riêng cho quản trị thành viên, kiểm duyệt, xác minh chuyên môn, audit, AI control plane và vận hành hệ thống.
-- Kiểm duyệt hỗ trợ `keep`, `hide`, `soft_delete`, `dismiss`; khôi phục chỉ dành cho `super_mod/admin`.
+- ACC tách riêng cho quản trị thành viên, kiểm duyệt, xác minh chuyên môn, audit, AI control plane, Backup/Recovery và vận hành hệ thống.
+- Kiểm duyệt hỗ trợ `keep`, `hide`, `soft_delete`, `dismiss`; khôi phục nội dung chỉ dành cho `super_mod/admin`.
 - Hồ sơ practitioner có quy trình `unsubmitted/rejected -> pending -> verified|rejected`; quyết định chỉ do `super_mod/admin` thực hiện trên server.
 - Minh chứng xác minh lưu riêng dưới `certificates/{uid}/...`; client chỉ đọc minh chứng của chính mình. ACC xem minh chứng qua server broker có xác thực role, kiểm tra path đã đăng ký, `no-store` và không phát hành URL công khai lâu dài.
 - `adminAudit/{operationId}` là nhật ký append-only do server tạo, retry-safe; duyệt toàn bộ audit chỉ dành cho admin.
 - Module C AI cung cấp Gemini server-only, advisory moderation/classification, RAG nội bộ CLB, RAG y văn bên ngoài có grounding, DOCX-to-post draft và Hardware Adaptive Lite Mode.
-- Firestore/Storage rules, indexes và security-contract tests bao phủ Module A/B/C. Dữ liệu AI server-owned được giữ sau server APIs; Firestore default-deny chặn truy cập client trực tiếp vào collection chưa được cấp quyền.
+- Module D Backup/Recovery cung cấp recovery state, public Safe Mode status, managed backup inventory, export checkpoint, restore/import cô lập, validation và ACC Recovery Control Center.
+- Firestore/Storage rules, indexes và security-contract tests bao phủ Module A/B/C/D. Dữ liệu server-owned được giữ sau server APIs; Firestore default-deny chặn truy cập client trực tiếp vào collection chưa được cấp quyền.
 - Production Firebase deploy dùng **OIDC/WIF-only**, chỉ chạy từ `main`; không có service-account JSON hoặc Firebase token fallback. `release/v1.0` chỉ validation và không vượt qua production WIF trust boundary.
 
-> Module C AI trên feature/release stream không đồng nghĩa đã được đưa lên production. Production chỉ thay đổi sau một promotion riêng vào `main`.
+> Module C/D trên feature/release stream không đồng nghĩa đã được đưa lên production. Production chỉ thay đổi sau một promotion riêng vào `main`.
+
+## Module D Backup / Recovery
+
+Module D xây một control plane phục hồi có kiểm soát, không tạo đường ghi trực tiếp từ browser tới tài nguyên backup hoặc database đích.
+
+- Public app chỉ nhận trạng thái đã sanitize: `mode`, `readOnly`, thông điệp an toàn và retry hint tùy chọn. Reason nội bộ, operation ID, provider resource, bucket/prefix và credential không được trả về client.
+- ACC `/recovery` cho phép admin quản lý Safe Mode, xem managed backup, tạo checkpoint, khởi tạo restore/import, chạy validation và duyệt/từ chối recovery candidate. UI chỉ là lớp hiển thị; mọi mutation vẫn được server route xác minh Firebase bearer token, password-rotation gate và role.
+- Export checkpoint dùng bucket/prefix do server cấu hình. Browser không được chọn project, bucket, database hoặc URI provider.
+- Restore từ managed backup luôn tạo một **recovery database** riêng với ID do server sinh. Import checkpoint cũng chỉ đi vào recovery database riêng và nguồn import phải đến từ manifest server-owned.
+- Validation chỉ đọc một allowlist marker nhỏ, bounded; không scan toàn bộ database. Candidate `verified` chỉ có nghĩa là đã qua validation, không đổi production authority.
+- **Production cutover không tự động.** Module D không có auto-promotion, auto-switch database hoặc restore trực tiếp lên live `(default)` database.
+- `system/recovery` và `recoveryManifests` tiếp tục nằm sau Firestore authoritative default-deny; browser không có direct read/write authority cho control documents này.
+- Google Cloud recovery provider dùng OIDC/WIF hoặc Application Default Credentials ở server runtime; không có service-account JSON, Firebase token hoặc refresh-token fallback.
+- Production deploy vẫn **main-only** trên WIF provider được phê duyệt. Feature branch và `release/v1.0` không trở thành production deployer.
+
+Các biến ACC recovery server-only khi bật provider thật:
+
+```dotenv
+RECOVERY_GCP_PROJECT_ID=yhct-social-260902-42a4
+RECOVERY_FIRESTORE_DATABASE_ID=(default)
+RECOVERY_GCP_LOCATION=
+RECOVERY_EXPORT_BUCKET=
+RECOVERY_EXPORT_PREFIX=yhct-recovery
+GCP_PROJECT_NUMBER=
+GCP_SERVICE_ACCOUNT_EMAIL=
+GCP_WORKLOAD_IDENTITY_POOL_ID=
+GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=
+```
+
+Không prefix các biến recovery authority bằng `NEXT_PUBLIC_`.
 
 ## Module C AI Engine
 
@@ -123,6 +154,7 @@ Ca lâm sàng chỉ được đi qua AI sau khi đạt de-identification validat
 - Authentication providers theo cấu hình dự án.
 - ACC cần Firebase Admin runtime qua Application Default Credentials ở local/server phù hợp hoặc Vercel OIDC/WIF ở môi trường được cấu hình.
 - Để bật Module C AI đầy đủ cần Gemini server key; internal RAG cần File Search store; ACC Drive sync cần approved Drive folder và Google runtime identity có quyền đọc folder đó.
+- Để bật Module D provider thật cần recovery location/export bucket hợp lệ và Google runtime identity được cấp đúng quyền tối thiểu cho Firestore backup/export/import; các giá trị này chỉ tồn tại server-side.
 
 ## Chạy public app local
 
@@ -132,7 +164,7 @@ npm install
 npm run dev
 ```
 
-Điền đầy đủ `NEXT_PUBLIC_FIREBASE_*` và các biến AI server-only cần dùng trong `.env.local`. Không prefix Gemini secret bằng `NEXT_PUBLIC_`.
+Điền đầy đủ `NEXT_PUBLIC_FIREBASE_*` và các biến AI server-only cần dùng trong `.env.local`. Không prefix Gemini secret hoặc recovery authority bằng `NEXT_PUBLIC_`.
 
 ## Chạy ACC local
 
@@ -143,7 +175,7 @@ npm install
 npm run dev
 ```
 
-Không đưa service-account JSON vào repository. Runtime ACC phải nhận Google credentials theo cơ chế đã được phê duyệt của môi trường. Nếu Gemini/File Search/Drive chưa cấu hình thì AI control plane có thể báo chưa sẵn sàng, nhưng core ACC phải tiếp tục hoạt động.
+Không đưa service-account JSON vào repository. Runtime ACC phải nhận Google credentials theo cơ chế đã được phê duyệt của môi trường. Nếu provider AI/recovery chưa cấu hình thì control plane tương ứng có thể báo chưa sẵn sàng, nhưng core ACC phải tiếp tục hoạt động.
 
 ## Kiểm tra
 
@@ -166,7 +198,7 @@ npm run lint
 npm run build
 ```
 
-`npm test` kiểm tra domain invariants, RBAC, trust boundary, privacy/quota, AI tool separation, DOCX draft authority, hardware local-only policy, workflow contracts và security rules. Build cần các biến Firebase public/runtime hợp lệ theo cơ chế fail-fast hiện hành.
+`npm test` kiểm tra domain invariants, RBAC, trust boundary, privacy/quota, AI tool separation, DOCX draft authority, hardware local-only policy, recovery isolation, workflow contracts và security rules. Build cần các biến Firebase public/runtime hợp lệ theo cơ chế fail-fast hiện hành.
 
 ## Deploy Firebase rules/indexes
 
@@ -174,7 +206,7 @@ Production deploy được thực hiện qua GitHub Actions main-only với OIDC
 
 `release/v1.0` chạy Firebase policy validation không có `id-token: write`/WIF auth. Workflow production trên `main` triển khai Storage Rules, Firestore Rules và Firestore indexes sau khi application validation thành công.
 
-Module C AI không yêu cầu data migration/re-import. Việc promotion lên production là một hành động release riêng sau khi exact release SHA đã qua CI.
+Module C AI không yêu cầu data migration/re-import. Module D recovery không tự thực hiện production cutover. Việc promotion lên production là một hành động release riêng sau khi exact release SHA đã qua CI.
 
 ## Cấu trúc chính
 
@@ -185,11 +217,13 @@ app/
     rag/internal/
     rag/external/
     document-to-post/
+  api/recovery/status/
 components/
   portal/
     ai-research-panel.tsx
     docx-post-draft.tsx
     hardware-mode-control.tsx
+    recovery-banner.tsx
   providers/
     hardware-mode-provider.tsx
 lib/
@@ -203,6 +237,7 @@ lib/
     analysis.ts
     rag.ts
     docx.ts
+  server/recovery-public.ts
   hardware-mode.ts
   post-service.ts
   comment-service.ts
@@ -211,7 +246,9 @@ lib/
 admin-portal/
   app/
     ai/
+    recovery/
     api/ai/
+    api/recovery/
     api/moderation/
     api/verification/
     api/audit/
@@ -219,6 +256,12 @@ admin-portal/
     ai-policy.ts
     ai-knowledge.ts
     ai-ops.ts
+    recovery-policy.ts
+    recovery-provider.ts
+    recovery-state.ts
+    recovery-manifests.ts
+    recovery-restore.ts
+    recovery-validation.ts
     moderation.ts
     verification.ts
     audit.ts
@@ -231,9 +274,10 @@ firebase.json
 ## Nguyên tắc bảo mật
 
 - UI không phải lớp phân quyền cuối cùng; server routes và Firebase Rules luôn xác minh lại role, ownership và trạng thái tài khoản.
-- `mustChangePassword` chặn các mutation được bảo vệ, gồm các AI operation yêu cầu thành viên hợp lệ.
-- Client không được ghi moderation decision, verification decision, AI analyses/quota/knowledge manifest, parent counters hoặc `adminAudit`.
-- Restore và verification decision không được cấp cho `mod`.
+- `mustChangePassword` chặn các mutation được bảo vệ, gồm các AI operation yêu cầu thành viên hợp lệ và recovery mutations qua ACC auth gate.
+- Client không được ghi moderation decision, verification decision, AI analyses/quota/knowledge manifest, recovery control documents, parent counters hoặc `adminAudit`.
+- Restore nội dung và verification decision không được cấp cho `mod`; Backup/Recovery infrastructure mutations của Module D là admin-only.
+- Recovery restore/import không nhận target database hoặc arbitrary storage URI từ browser; target và source authority do server quyết định.
 - Minh chứng chuyên môn không có public download URL; privileged review đi qua ACC broker.
 - AI không có quyền trực tiếp sửa trạng thái kiểm duyệt hoặc quyền người dùng.
 - Không commit activation password, private member roster, service-account JSON, private key, ID token hoặc private migration package.
