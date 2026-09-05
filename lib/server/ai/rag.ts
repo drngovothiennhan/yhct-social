@@ -1,8 +1,8 @@
-import { getAiConfig } from './config';
-import { createGeminiProvider, type GeminiGroundedRequest, type GeminiGroundedResult } from './gemini';
-import { assertAiSafeText } from './privacy';
-import { consumeAiQuota } from './quota';
-import { RagAnswerSchema, RagQueryInputSchema, type AiActor, type AiSource, type RagAnswer, type RagQueryInput } from './types';
+import { getAiConfig } from './config.ts';
+import { createGeminiProvider, type GeminiGroundedRequest, type GeminiGroundedResult } from './gemini.ts';
+import { assertAiSafeText } from './privacy.ts';
+import { consumeAiQuota } from './quota.ts';
+import { RagAnswerSchema, RagQueryInputSchema, type AiActor, type AiSource, type RagAnswer, type RagQueryInput } from './types.ts';
 
 export class AiRagError extends Error {
   readonly code: 'AI_QUOTA_EXCEEDED' | 'AI_INTERNAL_RAG_NOT_CONFIGURED' | 'AI_PERSONALIZED_CLINICAL_REQUEST';
@@ -98,7 +98,7 @@ export async function queryRagWithDeps(
 async function resolveManifestSources(chunks: GeminiGroundedResult['chunks']): Promise<AiSource[]> {
   const retrieved = chunks.filter((chunk) => chunk.kind === 'retrieved');
   if (retrieved.length === 0) return [];
-  const { rootAdminDb } = await import('../firebase-admin');
+  const { rootAdminDb } = await import('../firebase-admin.ts');
   const snapshot = await rootAdminDb().collection('aiKnowledgeSources').where('status', '==', 'ready').limit(50).get();
   const manifests = snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
   const sources: AiSource[] = [];
