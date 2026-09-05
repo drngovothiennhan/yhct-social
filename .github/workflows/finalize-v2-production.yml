@@ -66,6 +66,10 @@ jobs:
         with:
           project_id: yhct-social-260902-42a4
 
+      - name: Provision keyless ACC runtime identity
+        shell: bash
+        run: bash scripts/setup-acc-wif.sh
+
       - name: Discover Firestore and compatible bucket locations
         id: location
         shell: bash
