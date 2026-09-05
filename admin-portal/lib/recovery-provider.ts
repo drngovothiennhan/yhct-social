@@ -8,6 +8,7 @@ export interface ManagedBackupSummary {
 
 export interface ProviderOperationSummary {
   operationId: string;
+  operationRef?: string;
   done: boolean;
   errorCode?: string;
 }
@@ -55,10 +56,12 @@ function databaseSuffix(value: unknown): string {
 function operationSummary(value: unknown): ProviderOperationSummary {
   const row = value && typeof value === 'object' ? value as Record<string, unknown> : {};
   const error = row.error && typeof row.error === 'object' ? row.error as Record<string, unknown> : undefined;
-  const operationId = resourceSuffix(row.name);
+  const operationRef = typeof row.name === 'string' ? row.name.trim().replace(/^\/+/, '') : '';
+  const operationId = resourceSuffix(operationRef);
   if (!operationId) throw new Error('RECOVERY_PROVIDER_OPERATION_MISSING');
   return {
     operationId,
+    operationRef,
     done: row.done === true,
     ...(error?.code !== undefined ? { errorCode: String(error.code) } : {}),
   };
@@ -113,9 +116,7 @@ export function createRecoveryProviderWithDeps(deps: RecoveryProviderDeps) {
     async startExportCheckpoint(input: { checkpointId: string; collectionIds?: string[] }): Promise<ProviderOperationSummary> {
       const id = checkpointId(input.checkpointId);
       const collectionIds = normalizedCollections(input.collectionIds);
-      const body: Record<string, unknown> = {
-        outputUriPrefix: `gs://${bucket}/${prefix}/${id}`,
-      };
+      const body: Record<string, unknown> = { outputUriPrefix: `gs://${bucket}/${prefix}/${id}` };
       if (collectionIds) body.collectionIds = collectionIds;
       const raw = await request(`projects/${projectId}/databases/${databaseId}/exportDocuments`, { method: 'POST', body });
       return operationSummary(raw);
@@ -124,10 +125,7 @@ export function createRecoveryProviderWithDeps(deps: RecoveryProviderDeps) {
     async startManagedBackupRestore(input: { backupId: string; recoveryDatabaseId: string }): Promise<ProviderOperationSummary> {
       const backupId = safeSegment(input.backupId, 'RECOVERY_BACKUP_NOT_FOUND');
       const recoveryDatabaseId = safeSegment(input.recoveryDatabaseId, 'RECOVERY_TARGET_INVALID');
-      const body = {
-        backup: `projects/${projectId}/locations/${location}/backups/${backupId}`,
-        databaseId: recoveryDatabaseId,
-      };
+      const body = { backup: `projects/${projectId}/locations/${location}/backups/${backupId}`, databaseId: recoveryDatabaseId };
       const raw = await request(`projects/${projectId}/databases:restore`, { method: 'POST', body });
       return operationSummary(raw);
     },
@@ -144,9 +142,7 @@ export function createRecoveryProviderWithDeps(deps: RecoveryProviderDeps) {
 
     async getProviderOperation(operationName: string): Promise<ProviderOperationSummary> {
       const name = operationName.trim().replace(/^\/+/, '');
-      if (!name || !/^projects\/[A-Za-z0-9._-]+\/(?:databases|locations)\/.+\/operations\/[A-Za-z0-9._-]+$/.test(name)) {
-        throw new Error('RECOVERY_PROVIDER_OPERATION_INVALID');
-      }
+      if (!name || !/^projects\/[A-Za-z0-9._-]+\/(?:databases|locations)\/.+\/operations\/[A-Za-z0-9._-]+$/.test(name)) throw new Error('RECOVERY_PROVIDER_OPERATION_INVALID');
       return operationSummary(await request(name, { method: 'GET' }));
     },
   };
@@ -155,18 +151,14 @@ export function createRecoveryProviderWithDeps(deps: RecoveryProviderDeps) {
 async function recoveryAccessToken(): Promise<string> {
   const scope = 'https://www.googleapis.com/auth/cloud-platform';
   if (process.env.VERCEL === '1') {
-    const [{ getVercelOidcToken }, { ExternalAccountClient }] = await Promise.all([
-      import('@vercel/oidc'),
-      import('google-auth-library'),
-    ]);
+    const [{ getVercelOidcToken }, { ExternalAccountClient }] = await Promise.all([import('@vercel/oidc'), import('google-auth-library')]);
     const projectNumber = requiredEnv('GCP_PROJECT_NUMBER');
     const serviceAccountEmail = requiredEnv('GCP_SERVICE_ACCOUNT_EMAIL');
     const poolId = requiredEnv('GCP_WORKLOAD_IDENTITY_POOL_ID');
     const providerId = requiredEnv('GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID');
     const audience = `https://iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`;
     const client = ExternalAccountClient.fromJSON({
-      type: 'external_account',
-      audience,
+      type: 'external_account', audience,
       subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
       token_url: 'https://sts.googleapis.com/v1/token',
       service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccountEmail}:generateAccessToken`,
@@ -188,10 +180,7 @@ async function recoveryAccessToken(): Promise<string> {
 async function providerFetchJson(path: string, init: ProviderRequestInit): Promise<unknown> {
   const response = await fetch(`https://firestore.googleapis.com/v1/${path}`, {
     method: init.method ?? 'GET',
-    headers: {
-      Authorization: `Bearer ${init.token ?? ''}`,
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-    },
+    headers: { Authorization: `Bearer ${init.token ?? ''}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
     body: init.body ? JSON.stringify(init.body) : undefined,
     cache: 'no-store',
   });
