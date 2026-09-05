@@ -20,14 +20,14 @@ function isOverride(value: string | null): value is HardwareModeOverride {
 
 function readSignals(): HardwareSignals {
   try {
-    const nav = navigator as Navigator & {
+    const extendedNavigator = navigator as Navigator & {
       deviceMemory?: number;
       connection?: { saveData?: boolean };
     };
     return {
-      hardwareConcurrency: typeof nav.hardwareConcurrency === 'number' ? nav.hardwareConcurrency : undefined,
-      deviceMemory: typeof nav.deviceMemory === 'number' ? nav.deviceMemory : undefined,
-      saveData: typeof nav.connection?.saveData === 'boolean' ? nav.connection.saveData : undefined,
+      hardwareConcurrency: typeof navigator.hardwareConcurrency === 'number' ? navigator.hardwareConcurrency : undefined,
+      deviceMemory: typeof extendedNavigator.deviceMemory === 'number' ? extendedNavigator.deviceMemory : undefined,
+      saveData: typeof extendedNavigator.connection?.saveData === 'boolean' ? extendedNavigator.connection.saveData : undefined,
       reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
     };
   } catch {
