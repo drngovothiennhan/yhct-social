@@ -1,5 +1,6 @@
 import { accErrorResponse, requireAccRole } from '@/lib/admin-auth';
 import { createExportCheckpoint } from '@/lib/recovery-manifests';
+import { currentReleaseSha } from '@/lib/release-identity';
 
 export const runtime = 'nodejs';
 
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
     const result = await createExportCheckpoint({
       operationId: body.operationId,
       reason: body.reason,
-      sourceReleaseSha: body.sourceReleaseSha,
+      sourceReleaseSha: currentReleaseSha(),
       collectionIds: body.collectionIds,
     }, { uid: principal.token.uid, role: 'admin' });
     return Response.json(result, { status: result.replayed ? 200 : 202, headers: { 'Cache-Control': 'no-store' } });

@@ -5,6 +5,7 @@ import { EmailAuthProvider, reauthenticateWithCredential, signOut, type User } f
 import { auth } from '@/lib/firebase-client';
 import { accApi } from '@/lib/api-client';
 import { canDecideVerification } from '@/lib/module-c-policy';
+import { canDisableAccount, canEditClubTitle, canSetRole, type AccRole } from '@/lib/rbac';
 
 type Member = {
   uid: string;
@@ -15,6 +16,8 @@ type Member = {
   verificationStatus: string;
   disabled: boolean;
 };
+
+const assignableRoles: AccRole[] = ['member', 'mod', 'super_mod', 'admin'];
 
 export function Dashboard({ role }: { user: User; role: string }) {
   return <>
@@ -114,18 +117,22 @@ export function MembersPanel({ user, role }: { user: User; role: string }) {
   }
 
   async function updateRole(member: Member) {
-    const nextRole = window.prompt('Role mới: member / mod / super_mod / admin', member.role)?.trim();
-    if (!nextRole || !['member', 'mod', 'super_mod', 'admin'].includes(nextRole)) return;
+    const allowed = assignableRoles.filter((candidate) => canSetRole(role, member.role, candidate));
+    if (!allowed.length) return;
+    const nextRole = window.prompt(`Role mới: ${allowed.join(' / ')}`, member.role)?.trim() as AccRole | undefined;
+    if (!nextRole || !allowed.includes(nextRole) || !canSetRole(role, member.role, nextRole)) return;
     await patchMember(member.uid, { action: 'role', role: nextRole });
   }
 
   async function updateTitle(member: Member) {
+    if (!canEditClubTitle(role, member.role)) return;
     const title = window.prompt('Chức danh CLB', member.clubTitle)?.trim();
     if (title === undefined) return;
     await patchMember(member.uid, { action: 'title', title });
   }
 
   async function toggleDisabled(member: Member) {
+    if (!canDisableAccount(role, member.role)) return;
     await patchMember(member.uid, { action: 'disabled', disabled: !member.disabled });
   }
 
@@ -139,7 +146,12 @@ export function MembersPanel({ user, role }: { user: User; role: string }) {
   return <section className="panel">
     <div className="panel-head"><div><h2>Thành viên CLB</h2><p>Tra cứu MSSV, chức danh, quyền và trạng thái.</p></div><div className="search"><input placeholder="Tên / MSSV / chức danh" value={query} onChange={(e) => setQuery(e.target.value)} /><button onClick={() => void loadMembers()} disabled={busy}>Tra cứu</button></div></div>
     {message ? <p className="notice">{message}</p> : null}
-    <div className="table-wrap"><table><thead><tr><th>Thành viên</th><th>MSSV</th><th>Role</th><th>Chức danh</th><th>Xác minh</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{members.map((member) => <tr key={member.uid}><td>{member.displayName}</td><td>{member.memberCode || '—'}</td><td>{member.role}</td><td>{member.clubTitle || '—'}</td><td>{member.verificationStatus}</td><td>{member.disabled ? 'Đã khóa' : 'Hoạt động'}</td><td><div className="top-actions"><button className="secondary" onClick={() => void updateRole(member)}>Role</button><button className="secondary" onClick={() => void updateTitle(member)}>Chức danh</button>{canDecideVerification(role) ? <button className="secondary" onClick={() => void updateVerification(member)}>Xác minh</button> : null}<button className="secondary" onClick={() => void toggleDisabled(member)}>{member.disabled ? 'Mở khóa' : 'Khóa'}</button></div></td></tr>)}</tbody></table></div>
+    <div className="table-wrap"><table><thead><tr><th>Thành viên</th><th>MSSV</th><th>Role</th><th>Chức danh</th><th>Xác minh</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{members.map((member) => {
+      const canChangeRole = assignableRoles.some((candidate) => canSetRole(role, member.role, candidate));
+      const canChangeTitle = canEditClubTitle(role, member.role);
+      const canChangeStatus = canDisableAccount(role, member.role);
+      return <tr key={member.uid}><td>{member.displayName}</td><td>{member.memberCode || '—'}</td><td>{member.role}</td><td>{member.clubTitle || '—'}</td><td>{member.verificationStatus}</td><td>{member.disabled ? 'Đã khóa' : 'Hoạt động'}</td><td><div className="top-actions">{canChangeRole ? <button className="secondary" onClick={() => void updateRole(member)}>Role</button> : null}{canChangeTitle ? <button className="secondary" onClick={() => void updateTitle(member)}>Chức danh</button> : null}{canDecideVerification(role) ? <button className="secondary" onClick={() => void updateVerification(member)}>Xác minh</button> : null}{canChangeStatus ? <button className="secondary" onClick={() => void toggleDisabled(member)}>{member.disabled ? 'Mở khóa' : 'Khóa'}</button> : null}{!canChangeRole && !canChangeTitle && !canDecideVerification(role) && !canChangeStatus ? <span className="muted">Chỉ xem</span> : null}</div></td></tr>;
+    })}</tbody></table></div>
   </section>;
 }
 
