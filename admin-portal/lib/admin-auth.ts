@@ -23,6 +23,11 @@ export interface AccPrincipal {
 }
 
 export async function requireFirebaseUser(request: Request): Promise<DecodedIdToken> {
+  const pathname = new URL(request.url).pathname;
+  if (pathname === '/api/session/change-password') {
+    return requireRecentFirebaseUser(request);
+  }
+
   try {
     return await adminAuth().verifyIdToken(bearerToken(request), true);
   } catch (error) {
