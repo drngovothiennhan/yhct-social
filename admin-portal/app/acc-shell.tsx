@@ -10,6 +10,7 @@ const destinations = [
   ['/members', 'Thành viên'],
   ['/moderation', 'Kiểm duyệt'],
   ['/verification', 'Xác minh'],
+  ['/ai', 'AI'],
   ['/audit', 'Nhật ký'],
   ['/system', 'Hệ thống'],
 ] as const;
