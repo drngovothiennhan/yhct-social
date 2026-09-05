@@ -14,14 +14,6 @@ test -n "$PROJECT_NUMBER"
 
 gcloud config set project "$PROJECT_ID" >/dev/null
 
-gcloud services enable \
-  iamcredentials.googleapis.com \
-  sts.googleapis.com \
-  identitytoolkit.googleapis.com \
-  firestore.googleapis.com \
-  --project "$PROJECT_ID" \
-  --quiet
-
 if ! gcloud iam service-accounts describe "$SA_EMAIL" --project "$PROJECT_ID" >/dev/null 2>&1; then
   gcloud iam service-accounts create "$SA_ID" \
     --project "$PROJECT_ID" \
