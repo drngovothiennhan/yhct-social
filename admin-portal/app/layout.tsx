@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'YHCT Social · Admin Control Center',
-  description: 'Trung tâm điều hành độc lập YHCT Social Beta 2.0',
+  description: 'Trung tâm điều hành độc lập YHCT Social v2.0',
   robots: { index: false, follow: false },
 };
 
