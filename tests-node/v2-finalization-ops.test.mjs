@@ -44,11 +44,16 @@ test('v2 finalization keeps recovery isolated and never automates production cut
   assert.doesNotMatch(workflow, /database.*update.*\(default\)|cutover.*production|promote.*recovery/i);
 });
 
-test('ACC production deploy receives server-derived recovery provider configuration', () => {
+test('finalization persists recovery configuration in Vercel before ACC production redeploy', () => {
+  const workflow = read('.github/workflows/finalize-v2-production.yml');
   const deploy = read('.github/workflows/deploy-admin-portal.yml');
-  assert.match(deploy, /RECOVERY_GCP_PROJECT_ID/);
-  assert.match(deploy, /RECOVERY_GCP_LOCATION/);
-  assert.match(deploy, /RECOVERY_EXPORT_BUCKET/);
+  assert.match(workflow, /RECOVERY_GCP_PROJECT_ID/);
+  assert.match(workflow, /RECOVERY_GCP_LOCATION/);
+  assert.match(workflow, /RECOVERY_EXPORT_BUCKET/);
+  assert.match(workflow, /api\.vercel\.com\/v10\/projects/);
+  assert.match(workflow, /upsert=true/);
+  assert.match(workflow, /vercel deploy --cwd admin-portal --prod/);
+  assert.doesNotMatch(deploy, /google-github-actions\/auth|service_account\s*:/i);
 });
 
 test('legacy member provisioning verification no longer requires first-login rotation', () => {
