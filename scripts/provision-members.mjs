@@ -112,7 +112,7 @@ async function provisionMember(auth, db, member) {
 
   const current = await auth.getUser(user.uid);
   const previousClaims = current.customClaims ?? {};
-  const mustChangePassword = created ? true : previousClaims.mustChangePassword !== false;
+  const mustChangePassword = false;
 
   await auth.setCustomUserClaims(user.uid, {
     ...previousClaims,
