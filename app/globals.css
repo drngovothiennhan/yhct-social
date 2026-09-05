@@ -36,6 +36,22 @@ button:disabled {
   opacity: 0.6;
 }
 
+html[data-hardware-mode='lite'] *,
+html[data-hardware-mode='lite'] *::before,
+html[data-hardware-mode='lite'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+html[data-hardware-mode='lite'] .backdrop-blur,
+html[data-hardware-mode='lite'] .backdrop-blur-sm,
+html[data-hardware-mode='lite'] .backdrop-blur-md,
+html[data-hardware-mode='lite'] .backdrop-blur-lg {
+  backdrop-filter: none !important;
+}
+
 .card {
   @apply rounded-2xl border border-slate-200/80 bg-white shadow-sm;
 }
