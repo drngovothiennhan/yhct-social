@@ -17,10 +17,11 @@ test('recovery state route is admin-only for mutations and sanitized', () => {
   assert.doesNotMatch(source, /projectId|bucket|providerResource|serviceAccount|updatedBy|createdAt/);
 });
 
-test('recovery state service uses system recovery document, operation idempotency and audit', () => {
+test('recovery state service uses system recovery document, validated operation idempotency and audit', () => {
   const source = read('lib/recovery-state.ts');
+  assert.match(source, /validateOperationId\(input\.operationId\)/);
   assert.match(source, /system\/recovery/);
-  assert.match(source, /adminAudit\/\$\{input\.operationId\}/);
+  assert.match(source, /adminAudit\/\$\{operationId\}/);
   assert.match(source, /runTransaction/);
   assert.match(source, /buildAuditEvent/);
   assert.match(source, /RECOVERY_OPERATION_CONFLICT/);
