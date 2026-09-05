@@ -147,13 +147,6 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "submittedAt", "order": "ASCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "adminAudit",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
     }
   ],
   "fieldOverrides": []
