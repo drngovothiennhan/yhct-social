@@ -5,13 +5,33 @@ import { readFile } from 'node:fs/promises';
 const packageJson = JSON.parse(
   await readFile(new URL('../package.json', import.meta.url), 'utf8'),
 );
+const accPackageJson = JSON.parse(
+  await readFile(new URL('../admin-portal/package.json', import.meta.url), 'utf8'),
+);
 
 async function readProjectFile(path) {
   return readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
-test('release metadata is frozen at version 1.0.0', () => {
-  assert.equal(packageJson.version, '1.0.0');
+test('release metadata is frozen at version 2.0.0', () => {
+  assert.equal(packageJson.version, '2.0.0');
+  assert.equal(accPackageJson.version, '2.0.0');
+});
+
+test('ACC shell identifies the official v2.0 release without beta labeling', async () => {
+  const shell = await readProjectFile('admin-portal/app/acc-shell.tsx');
+  assert.match(shell, /YHCT Social · v2\.0/);
+  assert.doesNotMatch(shell, /Beta 2\.0/);
+});
+
+test('ACC production deploy is main-only and validates before deploying', async () => {
+  const workflow = await readProjectFile('.github/workflows/deploy-admin-portal.yml');
+  assert.match(workflow, /branches:\s*\[main\]/);
+  assert.match(workflow, /if:\s*github\.ref == 'refs\/heads\/main'/);
+  assert.doesNotMatch(workflow, /branches:\s*\[beta\/2\.0-module-a\]/);
+  assert.match(workflow, /npm run check/);
+  assert.match(workflow, /--prod/);
+  assert.doesNotMatch(workflow, /FIREBASE_TOKEN|private_key|service_account\s*:/i);
 });
 
 test('modern app-web manifest exposes standalone install metadata', async () => {
