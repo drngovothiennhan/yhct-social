@@ -8,9 +8,6 @@ const dashboard = readFileSync(new URL('../app/dashboard.tsx', import.meta.url),
 const authGate = readFileSync(new URL('../app/auth-gate.tsx', import.meta.url), 'utf8');
 const adminAuth = readFileSync(new URL('../lib/admin-auth.ts', import.meta.url), 'utf8');
 const route = readFileSync(new URL('../app/api/session/change-password/route.ts', import.meta.url), 'utf8');
-const rotateStart = authGate.indexOf('async function rotatePassword');
-const rotateEnd = authGate.indexOf('\n  if (!user) return <main', rotateStart);
-const rotateBlock = authGate.slice(rotateStart, rotateEnd);
 
 test('ACC exposes a normal authenticated password-change destination', () => {
   assert.match(shell, /\['\/security',\s*'Đổi mật khẩu'\]/);
@@ -26,11 +23,10 @@ test('normal password change reauthenticates the Firebase user before calling th
   assert.match(dashboard, /\/api\/session\/change-password/);
 });
 
-test('forced activation password change ends the old session instead of refreshing a revoked session', () => {
-  assert.ok(rotateStart >= 0 && rotateEnd > rotateStart);
-  assert.match(rotateBlock, /\/api\/session\/change-password/);
-  assert.match(rotateBlock, /await signOut\(auth\)/);
-  assert.doesNotMatch(rotateBlock, /getIdTokenResult\(true\)/);
+test('first login is not redirected into a forced activation password-change flow', () => {
+  assert.doesNotMatch(authGate, /async function rotatePassword/);
+  assert.doesNotMatch(authGate, /BẢO MẬT LẦN ĐẦU/);
+  assert.doesNotMatch(authGate, /Đổi mật khẩu kích hoạt/);
 });
 
 test('password route remains server-owned while only that route uses recent-auth verification', () => {
