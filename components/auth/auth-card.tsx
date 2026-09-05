@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { LogIn, LogOut, ShieldCheck, UserRoundPlus } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import {
@@ -15,7 +16,7 @@ import type { AccountType } from '@/lib/types';
 import { Avatar } from '@/components/common/avatar';
 
 export function AuthCard() {
-  const { user, profile, loading, profileError, refreshProfile } = useAuth();
+  const { user, profile, claims, loading, profileError, refreshProfile } = useAuth();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +28,10 @@ export function AuthCard() {
         <div className="mt-4 h-10 animate-pulse rounded-xl bg-slate-100" />
       </section>
     );
+  }
+
+  if (user && claims?.mustChangePassword === true) {
+    return <PasswordRotationCard user={user} />;
   }
 
   if (user && !profile) {
@@ -232,11 +237,12 @@ function EmailAuthForm({
       ) : null}
 
       <label className="field-label">
-        Email
+        {mode === 'login' ? 'MSSV hoặc email' : 'Email'}
         <input
           className="field-input"
-          type="email"
-          autoComplete="email"
+          type={mode === 'login' ? 'text' : 'email'}
+          autoComplete={mode === 'login' ? 'username' : 'email'}
+          inputMode={mode === 'login' ? 'email' : undefined}
           required
           value={values.email}
           onChange={(event) => setValues({ ...values, email: event.target.value })}
@@ -264,6 +270,63 @@ function EmailAuthForm({
       </button>
     </form>
   );
+}
+
+function PasswordRotationCard({ user }: { user: import('firebase/auth').User }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [nextPassword, setNextPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  async function rotatePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage('');
+    if (!user.email) return setMessage('Tài khoản này không hỗ trợ đổi mật khẩu bằng email.');
+    if (nextPassword !== confirmPassword) return setMessage('Xác nhận mật khẩu mới chưa khớp.');
+
+    setBusy(true);
+    try {
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
+      const token = await user.getIdToken(true);
+      const response = await fetch('/api/session/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ password: nextPassword }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error || 'PASSWORD_CHANGE_FAILED');
+      setMessage('Đã đổi mật khẩu. Hãy đăng nhập lại bằng mật khẩu mới.');
+      await logout();
+    } catch (changeError) {
+      const code = typeof changeError === 'object' && changeError && 'code' in changeError ? String(changeError.code) : '';
+      if (code.includes('wrong-password') || code.includes('invalid-credential')) {
+        setMessage('Mật khẩu hiện tại không đúng.');
+      } else if (changeError instanceof Error && changeError.message === 'RECENT_AUTH_REQUIRED') {
+        setMessage('Phiên xác thực đã cũ. Vui lòng thử lại.');
+      } else if (changeError instanceof Error && changeError.message.startsWith('Mật khẩu')) {
+        setMessage(changeError.message);
+      } else {
+        setMessage('Không thể đổi mật khẩu. Vui lòng thử lại.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <section className="card p-5">
+    <p className="eyebrow">Bảo mật lần đầu</p>
+    <h2 className="mt-1 text-lg font-bold text-slate-900">Đổi mật khẩu kích hoạt</h2>
+    <p className="mt-2 text-sm text-slate-600">Đổi mật khẩu tạm thời trước khi sử dụng các chức năng thành viên.</p>
+    <form className="mt-4 space-y-3" onSubmit={rotatePassword}>
+      <label className="field-label">Mật khẩu hiện tại<input className="field-input" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label>
+      <label className="field-label">Mật khẩu mới<input className="field-input" type="password" autoComplete="new-password" minLength={10} value={nextPassword} onChange={(event) => setNextPassword(event.target.value)} required /></label>
+      <label className="field-label">Xác nhận mật khẩu mới<input className="field-input" type="password" autoComplete="new-password" minLength={10} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></label>
+      {message ? <p className="form-error" role="alert">{message}</p> : null}
+      <button className="btn-primary w-full" type="submit" disabled={busy}>{busy ? 'Đang cập nhật…' : 'Đổi mật khẩu'}</button>
+    </form>
+    <button className="mt-3 w-full text-sm text-slate-500 hover:text-slate-700" type="button" onClick={() => void logout()}>Đăng xuất</button>
+  </section>;
 }
 
 function OnboardingCard({
