@@ -19,6 +19,17 @@ test('v2 finalization workflow provisions recovery through existing keyless WIF 
   assert.doesNotMatch(workflow, /service[_-]?account.*json|private[_-]?key|FIREBASE_TOKEN|refresh[_-]?token/i);
 });
 
+test('finalization validates permissions at each resource boundary instead of one mixed project probe', () => {
+  const workflow = read('.github/workflows/finalize-v2-production.yml');
+  assert.doesNotMatch(workflow, /projects\/\$\{GOOGLE_CLOUD_PROJECT\}:testIamPermissions/);
+  assert.match(workflow, /firestore databases describe/);
+  assert.match(workflow, /projects add-iam-policy-binding/);
+  assert.match(workflow, /storage buckets (?:describe|create)/);
+  assert.match(workflow, /finalize-v2-e2e\.mjs/);
+  assert.match(workflow, /firestore export/);
+  assert.match(workflow, /firestore import/);
+});
+
 test('v2 finalization performs synthetic credentialed E2E without logging passwords', () => {
   const workflow = read('.github/workflows/finalize-v2-production.yml');
   const e2e = read('scripts/finalize-v2-e2e.mjs');
