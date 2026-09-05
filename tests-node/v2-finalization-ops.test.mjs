@@ -30,6 +30,15 @@ test('finalization validates permissions at each resource boundary instead of on
   assert.match(workflow, /firestore import/);
 });
 
+test('finalization provisions ACC runtime identity before granting recovery roles', () => {
+  const workflow = read('.github/workflows/finalize-v2-production.yml');
+  const setupPosition = workflow.indexOf('scripts/setup-acc-wif.sh');
+  const grantPosition = workflow.indexOf('Grant recovery roles to isolated ACC runtime identity');
+  assert.ok(setupPosition >= 0, 'finalization must invoke the idempotent ACC runtime WIF setup');
+  assert.ok(grantPosition >= 0, 'finalization must keep the recovery role grant step');
+  assert.ok(setupPosition < grantPosition, 'ACC runtime identity must exist before recovery roles are granted');
+});
+
 test('v2 finalization performs synthetic credentialed E2E without logging passwords', () => {
   const workflow = read('.github/workflows/finalize-v2-production.yml');
   const e2e = read('scripts/finalize-v2-e2e.mjs');
