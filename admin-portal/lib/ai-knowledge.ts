@@ -49,6 +49,12 @@ function cleanTitle(value: string): string {
   return result;
 }
 
+function cleanVersionHash(value: string): string {
+  const result = value.trim();
+  if (!result || result.length > 128 || /\s/.test(result)) throw new Error('AI_KNOWLEDGE_INVALID_HASH');
+  return result;
+}
+
 export async function syncKnowledgeSourceWithDeps(
   input: KnowledgeSourceInput,
   actor: KnowledgeActor,
@@ -57,20 +63,20 @@ export async function syncKnowledgeSourceWithDeps(
   if (!canSyncAiKnowledge(actor.role)) throw new Error('AI_KNOWLEDGE_FORBIDDEN');
   const sourceId = cleanId(input.driveFileId);
   const title = cleanTitle(input.title);
-  if (!/^[a-f0-9]{6,128}$/i.test(input.contentHash)) throw new Error('AI_KNOWLEDGE_INVALID_HASH');
+  const contentHash = cleanVersionHash(input.contentHash);
 
   const existing = await deps.readManifest(sourceId);
-  if (existing?.contentHash === input.contentHash && existing.status === 'ready') {
+  if (existing?.contentHash === contentHash && existing.status === 'ready') {
     return { sourceId, providerDocumentId: existing.providerDocumentId, status: 'unchanged' };
   }
 
-  const uploaded = await deps.uploadToFileSearch({ ...input, driveFileId: sourceId, title });
+  const uploaded = await deps.uploadToFileSearch({ ...input, driveFileId: sourceId, title, contentHash });
   if (!uploaded.providerDocumentId) throw new Error('AI_FILE_SEARCH_DOCUMENT_MISSING');
 
   await deps.writeManifest(sourceId, {
     sourceId,
     title,
-    contentHash: input.contentHash,
+    contentHash,
     providerDocumentId: uploaded.providerDocumentId,
     status: 'ready',
   });
