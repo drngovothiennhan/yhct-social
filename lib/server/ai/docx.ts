@@ -1,9 +1,9 @@
 import * as mammoth from 'mammoth';
-import { getAiConfig } from './config';
-import { createGeminiProvider } from './gemini';
-import { assertAiSafeText } from './privacy';
-import { consumeAiQuota } from './quota';
-import { DocxDraftSchema, type AiActor, type DocxDraft } from './types';
+import { getAiConfig } from './config.ts';
+import { createGeminiProvider } from './gemini.ts';
+import { assertAiSafeText } from './privacy.ts';
+import { consumeAiQuota } from './quota.ts';
+import { DocxDraftSchema, type AiActor, type DocxDraft } from './types.ts';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
