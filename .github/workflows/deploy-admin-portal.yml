@@ -27,6 +27,7 @@ jobs:
       ACC_PROJECT: yhct-social-admin
       RECOVERY_GCP_PROJECT_ID: yhct-social-260902-42a4
       RECOVERY_EXPORT_BUCKET: yhct-social-recovery-prod-244889451934
+      FIREBASE_WEB_APP_ID: '1:244889451934:web:68766e1db11f532caeaa8f'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -44,6 +45,7 @@ jobs:
           test -n "${VERCEL_TOKEN:-}" || { echo 'ACC_DEPLOY=BLOCKED missing=VERCEL_TOKEN'; exit 1; }
 
       - name: Authenticate with Google Cloud OIDC
+        id: gcp_auth
         uses: google-github-actions/auth@v3
         with:
           project_id: yhct-social-260902-42a4
@@ -51,21 +53,34 @@ jobs:
           service_account: yhct-github-deploy@yhct-social-260902-42a4.iam.gserviceaccount.com
           create_credentials_file: true
           export_environment_variables: true
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
 
       - name: Install Google Cloud CLI
         uses: google-github-actions/setup-gcloud@v3
         with:
           project_id: yhct-social-260902-42a4
 
-      - name: Resolve recovery location from production Firestore
+      - name: Resolve production provider configuration
         id: recovery
+        env:
+          ACCESS_TOKEN: ${{ steps.gcp_auth.outputs.access_token }}
         shell: bash
         run: |
           set -Eeuo pipefail
           location="$(gcloud firestore databases describe --database='(default)' --project="$RECOVERY_GCP_PROJECT_ID" --format='value(locationId)')"
           test -n "$location"
-          echo "location=$location" >> "$GITHUB_OUTPUT"
+          encoded_app_id="$(node -p "encodeURIComponent(process.env.FIREBASE_WEB_APP_ID)")"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            "https://firebase.googleapis.com/v1beta1/projects/${RECOVERY_GCP_PROJECT_ID}/webApps/${encoded_app_id}/config" \
+            -o /tmp/firebase-web-config.json
+          api_key="$(node -e "const j=require('/tmp/firebase-web-config.json'); if(!j.apiKey)process.exit(2); process.stdout.write(j.apiKey)")"
+          echo "::add-mask::$api_key"
+          echo "RECOVERY_GCP_LOCATION=$location" >> "$GITHUB_ENV"
+          echo "FIREBASE_WEB_API_KEY=$api_key" >> "$GITHUB_ENV"
           echo "RECOVERY_GCP_LOCATION=$location"
+          echo 'FIREBASE_WEB_CONFIG=PASS'
 
       - name: Install ACC dependencies
         working-directory: admin-portal
@@ -97,15 +112,15 @@ jobs:
 
       - name: Deploy ACC production
         id: deploy
-        env:
-          RECOVERY_GCP_LOCATION: ${{ steps.recovery.outputs.location }}
         shell: bash
         run: |
           set -Eeuo pipefail
+          test -n "$FIREBASE_WEB_API_KEY"
+          test -n "$RECOVERY_GCP_LOCATION"
           url="$(vercel deploy --cwd admin-portal --prod --yes \
             --scope "$VERCEL_TEAM" \
             --token="$VERCEL_TOKEN" \
-            --build-env NEXT_PUBLIC_FIREBASE_API_KEY='${{ vars.NEXT_PUBLIC_FIREBASE_API_KEY }}' \
+            --build-env NEXT_PUBLIC_FIREBASE_API_KEY="$FIREBASE_WEB_API_KEY" \
             --build-env NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN='yhct-social-260902-42a4.firebaseapp.com' \
             --build-env NEXT_PUBLIC_FIREBASE_PROJECT_ID='yhct-social-260902-42a4' \
             --build-env NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET='yhct-social-260902-42a4.firebasestorage.app' \
