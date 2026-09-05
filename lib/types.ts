@@ -7,6 +7,7 @@ import type {
   SocialMedia,
   SocialPostStatus,
 } from '@/lib/domain/social';
+import type { ReportReasonCode, ReportTargetType } from '@/lib/domain/report';
 
 export type AccountType = 'member' | 'practitioner' | 'student' | 'patient';
 export type UserRole = ClubRole | 'moderator';
@@ -19,6 +20,8 @@ export type VerificationStatus =
 export type PostType = 'clinical_case' | 'remedy' | 'qa';
 export type PostStatus = 'published' | 'hidden' | 'removed';
 export type CommentStatus = 'active' | 'hidden' | 'deleted';
+export type ReportStatus = 'open' | 'reviewing' | 'resolved' | 'dismissed';
+export type ReportResolution = 'keep' | 'hide' | 'soft_delete' | null;
 
 export interface UserProfile {
   uid: string;
@@ -105,6 +108,24 @@ export interface SocialCommentRecord {
   text: string;
   edited: boolean;
   status: CommentStatus;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+}
+
+export interface ReportRecord {
+  id: string;
+  reporterUid: string;
+  targetType: ReportTargetType;
+  postId: string;
+  commentId: string | null;
+  reasonCode: ReportReasonCode;
+  details: string;
+  status: ReportStatus;
+  assignedTo: string | null;
+  resolvedBy: string | null;
+  resolvedAt: Timestamp | null;
+  resolution: ReportResolution;
+  resolutionReason: string | null;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
 }

@@ -20,7 +20,8 @@ test('Module B media is image-only and limited to ten MiB', () => {
   assert.match(rules, /request\.resource\.size <= 10 \* 1024 \* 1024/);
 });
 
-test('certificate privacy remains owner or moderator only', () => {
-  assert.match(rules, /match \/certificates\/\{uid\}\/\{fileName\}/);
-  assert.match(rules, /allow read: if \(signedIn\(\) && request\.auth\.uid == uid\) \|\| isModerator\(\);/);
+test('Module C tightens certificate direct reads to the owner', () => {
+  const certificateBlock = rules.match(/match \/certificates\/\{uid\}\/\{fileName\} \{([\s\S]*?)\n    \}/)?.[1] ?? '';
+  assert.match(certificateBlock, /allow read: if signedIn\(\) && request\.auth\.uid == uid;/);
+  assert.doesNotMatch(certificateBlock, /allow read:[^;]*isModerator\(\)/);
 });

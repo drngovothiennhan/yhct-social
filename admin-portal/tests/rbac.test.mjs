@@ -40,9 +40,11 @@ test('account disable boundary protects admin and super_mod from super_mod actor
   assert.equal(canDisableAccount('admin', 'super_mod'), true);
 });
 
-test('title and verification permissions follow Module A matrix', () => {
+test('title permissions follow role hierarchy and verification is tightened by Module C', () => {
   assert.equal(canEditClubTitle('super_mod', 'mod'), true);
   assert.equal(canEditClubTitle('super_mod', 'super_mod'), false);
-  assert.equal(canManageVerification('mod'), true);
+  assert.equal(canManageVerification('mod'), false);
+  assert.equal(canManageVerification('super_mod'), true);
+  assert.equal(canManageVerification('admin'), true);
   assert.equal(canManageVerification('member'), false);
 });

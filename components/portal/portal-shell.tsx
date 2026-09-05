@@ -6,6 +6,9 @@ import type { ReactNode } from 'react';
 import { CalendarDays, HeartPulse, Home, UserRound, Users } from 'lucide-react';
 import { AuthCard } from '@/components/auth/auth-card';
 import { useAuth } from '@/components/providers/auth-provider';
+import { AiResearchPanel } from '@/components/portal/ai-research-panel';
+import { HardwareModeControl } from '@/components/portal/hardware-mode-control';
+import { RecoveryBanner } from '@/components/portal/recovery-banner';
 import { PORTAL_NAVIGATION } from '@/lib/navigation';
 
 const icons = {
@@ -69,6 +72,12 @@ export function PortalShell({ children, contextual }: { children: ReactNode; con
         </aside>
 
         <main className="min-w-0 space-y-4">
+          <RecoveryBanner />
+          {!loading && !user ? (
+            <div className="xl:hidden">
+              <AuthCard />
+            </div>
+          ) : null}
           {claims?.mustChangePassword ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               Bạn cần đổi mật khẩu tạm thời trước khi đăng bài, bình luận hoặc bày tỏ cảm xúc.
@@ -80,6 +89,8 @@ export function PortalShell({ children, contextual }: { children: ReactNode; con
         <aside className="hidden xl:block">
           <div className="sticky top-24 space-y-4">
             {contextual ?? <AuthCard />}
+            <AiResearchPanel />
+            <HardwareModeControl />
             <section className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
               <p className="font-semibold text-slate-900">Nguyên tắc cộng đồng</p>
               <p className="mt-2">Chia sẻ học thuật có trách nhiệm, tôn trọng quyền riêng tư và không thay thế tư vấn y khoa trực tiếp.</p>

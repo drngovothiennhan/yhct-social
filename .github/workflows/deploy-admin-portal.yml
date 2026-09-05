@@ -3,7 +3,7 @@ name: Deploy Admin Control Center
 on:
   workflow_dispatch:
   push:
-    branches: [beta/2.0-module-a]
+    branches: [main]
     paths:
       - 'admin-portal/**'
       - '.github/workflows/deploy-admin-portal.yml'
@@ -12,11 +12,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: yhct-acc-beta
+  group: yhct-acc-production
   cancel-in-progress: false
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -39,6 +40,14 @@ jobs:
           set -Eeuo pipefail
           test -n "${VERCEL_TOKEN:-}" || { echo 'ACC_DEPLOY=BLOCKED missing=VERCEL_TOKEN'; exit 1; }
 
+      - name: Install ACC dependencies
+        working-directory: admin-portal
+        run: npm install --no-audit --no-fund
+
+      - name: Validate ACC application
+        working-directory: admin-portal
+        run: npm run check
+
       - name: Install pinned Vercel CLI
         run: npm install --global vercel@59.10.0
 
@@ -59,7 +68,7 @@ jobs:
       - name: Link ACC directory
         run: vercel link --cwd admin-portal --yes --project "$ACC_PROJECT" --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN"
 
-      - name: Deploy ACC beta production
+      - name: Deploy ACC production
         id: deploy
         shell: bash
         run: |

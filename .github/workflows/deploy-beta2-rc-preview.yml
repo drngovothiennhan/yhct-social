@@ -1,0 +1,160 @@
+name: Deploy Beta 2.0 RC Preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/v1.0]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yhct-beta2-rc-preview
+  cancel-in-progress: false
+
+jobs:
+  validate-and-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM: hiu-yhct
+      PUBLIC_PROJECT: yhct-social
+      ACC_PROJECT: yhct-social-admin
+      NEXT_PUBLIC_FIREBASE_API_KEY: AIzaSyC6x8KsAFyOtAnm7VFl6_RWTp6Fr9IJl_I
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: yhct-social-260902-42a4.firebaseapp.com
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: yhct-social-260902-42a4
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: yhct-social-260902-42a4.firebasestorage.app
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '244889451934'
+      NEXT_PUBLIC_FIREBASE_APP_ID: 1:244889451934:web:68766e1db11f532caeaa8f
+
+    steps:
+      - name: Checkout exact RC head
+        uses: actions/checkout@v6
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+
+      - name: Validate preview authority
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/release/v1.0' || { echo 'RC_PREVIEW=BLOCKED wrong_branch'; exit 1; }
+          test -n "${VERCEL_TOKEN:-}" || { echo 'RC_PREVIEW=BLOCKED missing=VERCEL_TOKEN'; exit 1; }
+          test "$NEXT_PUBLIC_FIREBASE_PROJECT_ID" = 'yhct-social-260902-42a4' || { echo 'RC_PREVIEW=BLOCKED firebase_project_mismatch'; exit 1; }
+          echo "RC_SHA=${GITHUB_SHA}"
+          echo 'RC_PREVIEW_AUTHORITY=PASS'
+
+      - name: Validate public application
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+
+      - name: Validate ACC application
+        working-directory: admin-portal
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+
+      - name: Install pinned Vercel CLI
+        run: npm install --global vercel@59.10.0
+
+      - name: Link public project
+        run: vercel link --yes --project "$PUBLIC_PROJECT" --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN"
+
+      - name: Deploy public RC preview
+        id: public
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          url="$(vercel deploy --yes \
+            --scope "$VERCEL_TEAM" \
+            --token="$VERCEL_TOKEN" \
+            --build-env NEXT_PUBLIC_FIREBASE_API_KEY="$NEXT_PUBLIC_FIREBASE_API_KEY" \
+            --build-env NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN" \
+            --build-env NEXT_PUBLIC_FIREBASE_PROJECT_ID="$NEXT_PUBLIC_FIREBASE_PROJECT_ID" \
+            --build-env NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET" \
+            --build-env NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID" \
+            --build-env NEXT_PUBLIC_FIREBASE_APP_ID="$NEXT_PUBLIC_FIREBASE_APP_ID")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "PUBLIC_RC_URL=$url"
+
+      - name: Link ACC project
+        run: vercel link --cwd admin-portal --yes --project "$ACC_PROJECT" --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN"
+
+      - name: Deploy ACC RC preview
+        id: acc
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          url="$(vercel deploy --cwd admin-portal --yes \
+            --scope "$VERCEL_TEAM" \
+            --token="$VERCEL_TOKEN" \
+            --build-env NEXT_PUBLIC_FIREBASE_API_KEY="$NEXT_PUBLIC_FIREBASE_API_KEY" \
+            --build-env NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN" \
+            --build-env NEXT_PUBLIC_FIREBASE_PROJECT_ID="$NEXT_PUBLIC_FIREBASE_PROJECT_ID" \
+            --build-env NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET" \
+            --build-env NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID" \
+            --build-env NEXT_PUBLIC_FIREBASE_APP_ID="$NEXT_PUBLIC_FIREBASE_APP_ID" \
+            --env GCP_PROJECT_NUMBER='244889451934' \
+            --env GCP_SERVICE_ACCOUNT_EMAIL='yhct-acc-runtime@yhct-social-260902-42a4.iam.gserviceaccount.com' \
+            --env GCP_WORKLOAD_IDENTITY_POOL_ID='vercel-yhct-social' \
+            --env GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID='vercel-acc')"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "ACC_RC_URL=$url"
+
+      - name: Smoke-test RC previews
+        shell: bash
+        env:
+          PUBLIC_URL: ${{ steps.public.outputs.url }}
+          ACC_URL: ${{ steps.acc.outputs.url }}
+        run: |
+          set -Eeuo pipefail
+          smoke() {
+            local name="$1"
+            local url="$2"
+            local out="$3"
+            for attempt in 1 2 3 4 5; do
+              status="$(curl -L -sS -o "$out" -w '%{http_code}' "$url" || true)"
+              if [[ "$status" =~ ^[23][0-9][0-9]$ ]]; then
+                echo "${name}=PASS status=${status} url=${url}"
+                return 0
+              fi
+              echo "${name}=RETRY attempt=${attempt} status=${status}"
+              sleep 5
+            done
+            echo "${name}=FAIL url=${url}"
+            return 1
+          }
+
+          smoke PUBLIC_RC_HTTP "$PUBLIC_URL/" /tmp/public.html
+          smoke ACC_RC_HTTP "$ACC_URL/" /tmp/acc.html
+          smoke RECOVERY_STATUS_HTTP "$PUBLIC_URL/api/recovery/status" /tmp/recovery.json
+
+          if grep -Eqi 'bucket|serviceAccount|operationId|providerResource|private_key|refresh_token' /tmp/recovery.json; then
+            echo 'RECOVERY_STATUS_SANITIZATION=FAIL'
+            cat /tmp/recovery.json
+            exit 1
+          fi
+          echo 'RECOVERY_STATUS_SANITIZATION=PASS'
+
+      - name: Publish RC handoff summary
+        shell: bash
+        env:
+          PUBLIC_URL: ${{ steps.public.outputs.url }}
+          ACC_URL: ${{ steps.acc.outputs.url }}
+        run: |
+          {
+            echo '## Beta 2.0 RC Preview'
+            echo
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Public: ${PUBLIC_URL}"
+            echo "- ACC: ${ACC_URL}"
+            echo '- Target: preview only (no production alias promotion)'
+          } >> "$GITHUB_STEP_SUMMARY"

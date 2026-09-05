@@ -19,9 +19,10 @@ test('deleted comment tombstones remain readable on published posts', () => {
   assert.match(firestoreRules, /resource\.data\.status in \['active', 'deleted'\]/);
 });
 
-test('certificate storage is private to owner and moderators', () => {
-  assert.match(storageRules, /match \/certificates\/\{uid\}\/\{fileName\}/);
-  assert.match(storageRules, /allow read: if \(signedIn\(\) && request\.auth\.uid == uid\) \|\| isModerator\(\);/);
+test('certificate storage is private to owner and privileged review is server-brokered', () => {
+  const certificateBlock = storageRules.match(/match \/certificates\/\{uid\}\/\{fileName\} \{([\s\S]*?)\n    \}/)?.[1] ?? '';
+  assert.match(certificateBlock, /allow read: if signedIn\(\) && request\.auth\.uid == uid;/);
+  assert.doesNotMatch(certificateBlock, /allow read:[^;]*isModerator\(\)/);
 });
 
 test('migration member staging is private and client read-only', () => {

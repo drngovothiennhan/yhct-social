@@ -3,9 +3,30 @@
 import { useState, type FormEvent } from 'react';
 import { ImagePlus, Send } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
+import { DocxPostDraft } from '@/components/portal/docx-post-draft';
 import { validatePostImages } from '@/lib/domain/media';
 import type { PostKind, PostVisibility } from '@/lib/domain/social';
 import { createSocialPost } from '@/lib/post-service';
+import type { DocxDraft } from '@/lib/server/ai/types';
+
+function draftToText(draft: DocxDraft): string {
+  const lines: string[] = [];
+  if (draft.title) lines.push(draft.title);
+  if (draft.summary) lines.push(draft.summary);
+  if (draft.batCuong) lines.push(`Bát cương: ${draft.batCuong}`);
+  if (draft.tangPhu) lines.push(`Tạng phủ: ${draft.tangPhu}`);
+  if (draft.diagnosticPattern) lines.push(`Biện chứng: ${draft.diagnosticPattern}`);
+  if (draft.herbs.length > 0) {
+    lines.push('Dược liệu:');
+    for (const herb of draft.herbs) {
+      lines.push(`- ${herb.name}${herb.amount ? ` ${herb.amount}` : ''}${herb.unit ? ` ${herb.unit}` : ''}${herb.note ? ` — ${herb.note}` : ''}`);
+    }
+  }
+  if (draft.usage) lines.push(`Cách dùng/ghi chú: ${draft.usage}`);
+  if (draft.tags.length > 0) lines.push(draft.tags.map((tag) => `#${tag.replace(/\s+/g, '_')}`).join(' '));
+  if (draft.uncertainties.length > 0) lines.push(`Cần kiểm tra lại: ${draft.uncertainties.join('; ')}`);
+  return lines.join('\n\n').slice(0, 12000);
+}
 
 export function SocialComposer({ onPublished }: { onPublished?: () => void }) {
   const { user, profile, claims } = useAuth();
@@ -42,6 +63,11 @@ export function SocialComposer({ onPublished }: { onPublished?: () => void }) {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Ảnh đính kèm không hợp lệ.');
     }
+  }
+
+  function applyDocxDraft(draft: DocxDraft) {
+    setText(draftToText(draft));
+    setMessage('Bản nháp AI đã được nạp vào ô soạn thảo. Hãy kiểm tra trước khi đăng.');
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -85,6 +111,8 @@ export function SocialComposer({ onPublished }: { onPublished?: () => void }) {
           {privileged ? <button type="button" onClick={() => setKind('club_news')} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${kind === 'club_news' ? 'bg-emerald-700 text-white' : 'bg-slate-100 text-slate-600'}`}>Tin CLB</button> : null}
           {privileged ? <button type="button" onClick={() => setKind('activity_update')} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${kind === 'activity_update' ? 'bg-emerald-700 text-white' : 'bg-slate-100 text-slate-600'}`}>Cập nhật hoạt động</button> : null}
         </div>
+
+        <DocxPostDraft onDraft={applyDocxDraft} />
 
         <textarea
           value={text}

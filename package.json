@@ -1,6 +1,6 @@
 {
   "name": "yhct-social",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -25,12 +25,20 @@
   },
   "dependencies": {
     "@capacitor/core": "8.5.1",
+    "@google/genai": "2.21.0",
+    "@vercel/oidc": "3.8.5",
     "firebase": "12.18.0",
     "firebase-admin": "14.3.0",
+    "google-auth-library": "10.3.0",
     "lucide-react": "1.40.0",
+    "mammoth": "1.12.2",
     "next": "16.3.4",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "zod": "4.5.4"
+  },
+  "overrides": {
+    "jwks-rsa": "3.2.2"
   },
   "devDependencies": {
     "@capacitor/android": "8.5.1",

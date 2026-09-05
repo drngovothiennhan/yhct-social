@@ -1,6 +1,6 @@
 {
   "name": "yhct-social-admin-portal",
-  "version": "2.0.0-beta.1",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22.12.0 <23" },
@@ -14,6 +14,7 @@
     "check": "npm run test && npm run typecheck && npm run lint"
   },
   "dependencies": {
+    "@google/genai": "2.21.0",
     "@vercel/oidc": "3.8.5",
     "firebase": "12.18.0",
     "firebase-admin": "14.3.0",

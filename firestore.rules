@@ -399,6 +399,102 @@ service cloud.firestore {
         && data.createdAt is timestamp && data.updatedAt is timestamp;
     }
 
+    function expectedReportId(data) {
+      return data.targetType == 'post'
+        ? 'post__' + data.postId + '__' + request.auth.uid
+        : 'comment__' + data.postId + '__' + data.commentId + '__' + request.auth.uid;
+    }
+
+    function validReportCreate(reportId, data) {
+      return canMutateSocial()
+        && data.keys().hasAll([
+          'reporterUid', 'targetType', 'postId', 'commentId', 'reasonCode', 'details',
+          'status', 'createdAt', 'updatedAt', 'assignedTo', 'resolvedBy', 'resolvedAt',
+          'resolution', 'resolutionReason'
+        ])
+        && data.keys().hasOnly([
+          'reporterUid', 'targetType', 'postId', 'commentId', 'reasonCode', 'details',
+          'status', 'createdAt', 'updatedAt', 'assignedTo', 'resolvedBy', 'resolvedAt',
+          'resolution', 'resolutionReason'
+        ])
+        && request.resource.data.reporterUid == request.auth.uid
+        && data.targetType in ['post', 'comment']
+        && data.postId is string && data.postId.size() >= 1
+        && ((data.targetType == 'post' && data.commentId == null)
+          || (data.targetType == 'comment' && data.commentId is string && data.commentId.size() >= 1))
+        && data.reasonCode in ['spam', 'misinformation', 'inappropriate', 'privacy', 'other']
+        && data.details is string && data.details.size() <= 2000
+        && request.resource.data.status == 'open'
+        && data.assignedTo == null
+        && data.resolvedBy == null
+        && data.resolvedAt == null
+        && data.resolution == null
+        && data.resolutionReason == null
+        && data.createdAt == request.time
+        && data.updatedAt == request.time
+        && reportId == expectedReportId(data);
+    }
+
+    function validVerificationEvidenceItem(uid, item) {
+      return item is map
+        && item.keys().hasAll(['storagePath', 'type', 'label'])
+        && item.keys().hasOnly(['storagePath', 'type', 'label'])
+        && item.storagePath is string
+        && item.storagePath.matches('certificates/' + uid + '/[^/]+')
+        && item.type in ['license', 'degree', 'certificate', 'other']
+        && item.label is string && item.label.size() >= 1 && item.label.size() <= 120;
+    }
+
+    function validVerificationEvidenceList(uid, items) {
+      return items is list
+        && items.size() >= 1 && items.size() <= 6
+        && validVerificationEvidenceItem(uid, items[0])
+        && (items.size() < 2 || validVerificationEvidenceItem(uid, items[1]))
+        && (items.size() < 3 || validVerificationEvidenceItem(uid, items[2]))
+        && (items.size() < 4 || validVerificationEvidenceItem(uid, items[3]))
+        && (items.size() < 5 || validVerificationEvidenceItem(uid, items[4]))
+        && (items.size() < 6 || validVerificationEvidenceItem(uid, items[5]));
+    }
+
+    function validVerificationRequestBase(uid, data) {
+      return canMutateSocial()
+        && request.auth.uid == uid
+        && currentUserExists()
+        && currentUser().accountType == 'practitioner'
+        && data.keys().hasAll([
+          'uid', 'status', 'professionalType', 'evidence', 'attempt',
+          'submittedAt', 'updatedAt', 'decisionBy', 'decisionAt', 'decisionReason'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'status', 'professionalType', 'evidence', 'attempt',
+          'submittedAt', 'updatedAt', 'decisionBy', 'decisionAt', 'decisionReason'
+        ])
+        && data.uid == uid
+        && data.status == 'pending'
+        && data.professionalType is string
+        && data.professionalType.size() >= 1 && data.professionalType.size() <= 120
+        && validVerificationEvidenceList(uid, data.evidence)
+        && data.attempt is int && data.attempt >= 1
+        && data.submittedAt == request.time
+        && data.updatedAt == request.time
+        && data.decisionBy == null
+        && data.decisionAt == null
+        && data.decisionReason == null;
+    }
+
+    function validVerificationRequestCreate(uid, data) {
+      return validVerificationRequestBase(uid, data)
+        && data.attempt == 1;
+    }
+
+    function validVerificationRequestResubmit(uid, before, after) {
+      return validVerificationRequestBase(uid, after)
+        && before.uid == uid
+        && before.status == 'rejected'
+        && before.attempt is int
+        && after.attempt == before.attempt + 1;
+    }
+
     match /users/{uid} {
       allow read: if signedIn();
       allow create: if isOwner(uid) && validNewUser(request.resource.data);
@@ -522,6 +618,24 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
           && request.resource.data.updatedAt == request.time);
       allow delete: if isModerator();
+    }
+
+    match /reports/{reportId} {
+      allow read: if (signedIn() && resource.data.reporterUid == request.auth.uid) || isModerator();
+      allow create: if validReportCreate(reportId, request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /verificationRequests/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if validVerificationRequestCreate(uid, request.resource.data);
+      allow update: if validVerificationRequestResubmit(uid, resource.data, request.resource.data);
+      allow delete: if false;
+    }
+
+    match /adminAudit/{eventId} {
+      allow read: if false;
+      allow write: if false;
     }
 
     match /prescriptions/{prescriptionId} {
