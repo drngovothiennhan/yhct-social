@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { AuthProvider } from '@/components/providers/auth-provider';
+import { HardwareModeProvider } from '@/components/providers/hardware-mode-provider';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -26,7 +27,9 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html lang="vi">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <HardwareModeProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </HardwareModeProvider>
       </body>
     </html>
   );
