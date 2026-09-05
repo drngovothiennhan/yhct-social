@@ -35,19 +35,31 @@ function readSignals(): HardwareSignals {
   }
 }
 
+function readSavedOverride(): HardwareModeOverride {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return isOverride(saved) ? saved : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
 export function HardwareModeProvider({ children }: { children: ReactNode }) {
   const [derivedMode, setDerivedMode] = useState<HardwareMode>('standard');
   const [override, setOverrideState] = useState<HardwareModeOverride>('auto');
 
   useEffect(() => {
     const nextDerived = deriveHardwareMode(readSignals());
-    setDerivedMode(nextDerived);
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (isOverride(saved)) setOverrideState(saved);
-    } catch {
-      setOverrideState('auto');
-    }
+    const savedOverride = readSavedOverride();
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setDerivedMode(nextDerived);
+      setOverrideState(savedOverride);
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const mode = override === 'auto' ? derivedMode : override;
