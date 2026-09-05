@@ -6,9 +6,12 @@ export interface AiSafeTextResult {
 }
 
 export class AiPrivacyError extends Error {
-  constructor(public readonly code: 'AI_SENSITIVE_DATA' | 'AI_CLINICAL_NOT_DEIDENTIFIED') {
+  readonly code: 'AI_SENSITIVE_DATA' | 'AI_CLINICAL_NOT_DEIDENTIFIED';
+
+  constructor(code: 'AI_SENSITIVE_DATA' | 'AI_CLINICAL_NOT_DEIDENTIFIED') {
     super(code);
     this.name = 'AiPrivacyError';
+    this.code = code;
   }
 }
 
