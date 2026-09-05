@@ -10,7 +10,7 @@ test('ACC shell exposes recovery while preserving existing control destinations'
   for (const destination of ['/members', '/moderation', '/verification', '/ai', '/audit', '/system', '/recovery']) {
     assert.match(shell, new RegExp(destination.replace('/', '\\/')));
   }
-  assert.match(shell, /YHCT Social · Beta 2\.0/);
+  assert.match(shell, /YHCT Social · v2\.0/);
 });
 
 test('recovery page remains behind AuthGate and AccShell', () => {
