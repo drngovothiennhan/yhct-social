@@ -32,11 +32,12 @@ function cleanCollectionIds(value: unknown): string[] | undefined {
 }
 
 export function buildCheckpointRequest(input: Record<string, unknown>): CheckpointRequest {
+  const collectionIds = cleanCollectionIds(input.collectionIds);
   return {
     operationId: validateOperationId(input.operationId),
     reason: validateRecoveryReason(input.reason),
     sourceReleaseSha: cleanSha(input.sourceReleaseSha),
-    ...(cleanCollectionIds(input.collectionIds) ? { collectionIds: cleanCollectionIds(input.collectionIds) } : {}),
+    ...(collectionIds ? { collectionIds } : {}),
   };
 }
 
@@ -62,22 +63,14 @@ export function sanitizeManifest(input: Record<string, unknown>) {
 }
 
 function immutableFingerprint(request: CheckpointRequest): string {
-  return JSON.stringify({
-    action: 'recovery.checkpoint.export',
-    sourceReleaseSha: request.sourceReleaseSha,
-    collectionIds: request.collectionIds ?? [],
-    reason: request.reason,
-  });
+  return JSON.stringify({ action: 'recovery.checkpoint.export', sourceReleaseSha: request.sourceReleaseSha, collectionIds: request.collectionIds ?? [], reason: request.reason });
 }
 
 function manifestIdFor(operationId: string): string {
   return `checkpoint-${operationId}`.slice(0, 240);
 }
 
-export async function createExportCheckpoint(
-  rawInput: Record<string, unknown>,
-  actor: { uid: string; role: 'admin' },
-) {
+export async function createExportCheckpoint(rawInput: Record<string, unknown>, actor: { uid: string; role: 'admin' }) {
   const request = buildCheckpointRequest(rawInput);
   const db = adminDb();
   const manifestId = manifestIdFor(request.operationId);
@@ -86,16 +79,12 @@ export async function createExportCheckpoint(
   const fingerprint = immutableFingerprint(request);
 
   const reservation = await db.runTransaction(async (transaction) => {
-    const [manifestSnapshot, auditSnapshot] = await Promise.all([
-      transaction.get(manifestRef),
-      transaction.get(auditRef),
-    ]);
+    const [manifestSnapshot, auditSnapshot] = await Promise.all([transaction.get(manifestRef), transaction.get(auditRef)]);
     if (manifestSnapshot.exists || auditSnapshot.exists) {
       const existing = manifestSnapshot.exists ? manifestSnapshot.data() as Record<string, unknown> : {};
       if (existing.immutableFingerprint !== fingerprint) throw new Error('RECOVERY_OPERATION_CONFLICT');
       return { replayed: true, manifest: existing };
     }
-
     const manifest = {
       manifestId,
       operationId: request.operationId,
@@ -117,17 +106,7 @@ export async function createExportCheckpoint(
       collectionIds: request.collectionIds ?? [],
     };
     transaction.create(manifestRef, manifest);
-    const audit = buildAuditEvent({
-      operationId: request.operationId,
-      actorUid: actor.uid,
-      actorRole: actor.role,
-      action: 'recovery.checkpoint.export',
-      targetType: 'recovery',
-      targetId: manifestId,
-      reason: request.reason,
-      before: null,
-      after: { manifestId, status: 'requested', sourceReleaseSha: request.sourceReleaseSha },
-    });
+    const audit = buildAuditEvent({ operationId: request.operationId, actorUid: actor.uid, actorRole: actor.role, action: 'recovery.checkpoint.export', targetType: 'recovery', targetId: manifestId, reason: request.reason, before: null, after: { manifestId, status: 'requested', sourceReleaseSha: request.sourceReleaseSha } });
     transaction.create(auditRef, { ...audit, createdAt: FieldValue.serverTimestamp(), immutableFingerprint: fingerprint });
     return { replayed: false, manifest };
   });
@@ -138,13 +117,11 @@ export async function createExportCheckpoint(
     const provider = recoveryProvider();
     const operation = await provider.startExportCheckpoint({ checkpointId: manifestId, collectionIds: request.collectionIds });
     const providerResourceRef = operation.operationRef ?? operation.operationId;
-    const storagePrefix = `${process.env.RECOVERY_EXPORT_PREFIX?.trim() || 'yhct-recovery'}/${manifestId}`;
-    await manifestRef.update({
-      providerResourceRef,
-      storagePrefix,
-      status: operation.done ? 'completed' : 'running',
-      ...(operation.done ? { completedAt: FieldValue.serverTimestamp() } : {}),
-    });
+    const bucket = process.env.RECOVERY_EXPORT_BUCKET?.trim();
+    if (!bucket) throw new Error('RECOVERY_CONFIG_MISSING RECOVERY_EXPORT_BUCKET');
+    const prefix = process.env.RECOVERY_EXPORT_PREFIX?.trim() || 'yhct-recovery';
+    const storagePrefix = `gs://${bucket}/${prefix}/${manifestId}`;
+    await manifestRef.update({ providerResourceRef, storagePrefix, status: operation.done ? 'completed' : 'running', ...(operation.done ? { completedAt: FieldValue.serverTimestamp() } : {}) });
     const snapshot = await manifestRef.get();
     return { replayed: false, manifest: sanitizeManifest(snapshot.data() as Record<string, unknown>) };
   } catch {
@@ -161,8 +138,5 @@ export async function listRecoveryManifests(options: { limit?: unknown; cursor?:
     if (cursorSnapshot.exists) query = query.startAfter(cursorSnapshot);
   }
   const snapshot = await query.get();
-  return {
-    items: snapshot.docs.map((doc) => sanitizeManifest(doc.data() as Record<string, unknown>)),
-    nextCursor: snapshot.docs.length === limitValue ? snapshot.docs.at(-1)?.id ?? null : null,
-  };
+  return { items: snapshot.docs.map((doc) => sanitizeManifest(doc.data() as Record<string, unknown>)), nextCursor: snapshot.docs.length === limitValue ? snapshot.docs.at(-1)?.id ?? null : null };
 }
