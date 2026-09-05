@@ -30,6 +30,18 @@ test('finalization validates permissions at each resource boundary instead of on
   assert.match(workflow, /firestore import/);
 });
 
+test('finalization provisions the ACC runtime service account and Vercel WIF before recovery role grants', () => {
+  const workflow = read('.github/workflows/finalize-v2-production.yml');
+  const setupScript = read('scripts/setup-acc-wif.sh');
+  const setupIndex = workflow.indexOf('scripts/setup-acc-wif.sh');
+  const roleGrantIndex = workflow.indexOf('roles/datastore.importExportAdmin');
+  assert.ok(setupIndex >= 0, 'finalization must invoke the idempotent ACC WIF setup');
+  assert.ok(roleGrantIndex > setupIndex, 'ACC runtime identity must exist before recovery roles are granted');
+  assert.match(setupScript, /iam service-accounts create/);
+  assert.match(setupScript, /workload-identity-pools providers (?:create-oidc|update-oidc)/);
+  assert.match(setupScript, /roles\/iam\.workloadIdentityUser/);
+});
+
 test('v2 finalization performs synthetic credentialed E2E without logging passwords', () => {
   const workflow = read('.github/workflows/finalize-v2-production.yml');
   const e2e = read('scripts/finalize-v2-e2e.mjs');
