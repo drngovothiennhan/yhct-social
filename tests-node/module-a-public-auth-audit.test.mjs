@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const authCard = readFileSync(new URL('../components/auth/auth-card.tsx', import.meta.url), 'utf8');
 const portalShell = readFileSync(new URL('../components/portal/portal-shell.tsx', import.meta.url), 'utf8');
 const route = readFileSync(new URL('../app/api/session/change-password/route.ts', import.meta.url), 'utf8');
+const provisioning = readFileSync(new URL('../scripts/provision-members.mjs', import.meta.url), 'utf8');
 
 test('public login accepts raw MSSV without browser email validation blocking submission', () => {
   assert.match(authCard, /MSSV hoặc email/);
@@ -13,16 +14,18 @@ test('public login accepts raw MSSV without browser email validation blocking su
   assert.doesNotMatch(authCard, /type="email"[\s\S]{0,240}value=\{values\.email\}/);
 });
 
-test('users flagged for mandatory password rotation receive an actionable password-change form', () => {
-  assert.match(authCard, /mustChangePassword/);
-  assert.match(authCard, /Đổi mật khẩu kích hoạt/);
-  assert.match(authCard, /Mật khẩu hiện tại/);
-  assert.match(authCard, /Xác nhận mật khẩu mới/);
-  assert.match(authCard, /reauthenticateWithCredential/);
-  assert.match(authCard, /\/api\/session\/change-password/);
+test('first login is not blocked by mandatory password rotation in the public portal', () => {
+  assert.doesNotMatch(authCard, /if \(user && claims\?\.mustChangePassword === true\)/);
+  assert.doesNotMatch(authCard, /Đổi mật khẩu kích hoạt/);
+  assert.doesNotMatch(portalShell, /claims\?\.mustChangePassword/);
 });
 
-test('public password rotation is recent-auth server-authoritative and clears the rotation flag', () => {
+test('newly provisioned accounts do not require a first-login password change', () => {
+  assert.match(provisioning, /const mustChangePassword = false;/);
+  assert.doesNotMatch(provisioning, /created \? true : previousClaims\.mustChangePassword !== false/);
+});
+
+test('voluntary public password change remains recent-auth server-authoritative', () => {
   assert.match(route, /verifyIdToken\(bearerToken\(request\)\)/);
   assert.match(route, /assertRecentAuthentication/);
   assert.match(route, /assertAcceptableNewPassword/);
