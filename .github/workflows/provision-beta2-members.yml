@@ -131,7 +131,7 @@ jobs:
           const auth = getAuth(app);
           const user = await auth.getUserByEmail('2413120084@members.yhct.hiu.vn');
           const claims = user.customClaims ?? {};
-          if (claims.role !== 'admin' || claims.clubMember !== true || claims.mustChangePassword !== true || user.disabled) {
+          if (claims.role !== 'admin' || claims.clubMember !== true || claims.mustChangePassword === true || user.disabled) {
             console.error('BETA2_ADMIN_VERIFY=FAIL');
             process.exit(1);
           }

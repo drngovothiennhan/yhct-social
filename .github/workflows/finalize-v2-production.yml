@@ -1,0 +1,298 @@
+name: Finalize YHCT Social v2.0 Production
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/finalize-v2-production.yml'
+      - '.github/workflows/deploy-admin-portal.yml'
+      - '.github/workflows/provision-beta2-members.yml'
+      - 'scripts/finalize-v2-e2e.mjs'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: yhct-v2-production-finalization
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOOGLE_CLOUD_PROJECT: yhct-social-260902-42a4
+      GCLOUD_PROJECT: yhct-social-260902-42a4
+      PROJECT_NUMBER: '244889451934'
+      FIREBASE_WEB_APP_ID: '1:244889451934:web:68766e1db11f532caeaa8f'
+      RECOVERY_GCP_PROJECT_ID: yhct-social-260902-42a4
+      RECOVERY_EXPORT_BUCKET: yhct-social-recovery-prod-244889451934
+      ACC_BASE_URL: https://yhct-social-admin.vercel.app
+      ACC_PROJECT_ID: prj_UvzORFZPqkqLnhADrMntJEgKBrRE
+      VERCEL_TEAM_ID: team_zMTBj85c4Dh5QoDNIjWqQRTg
+      VERCEL_TEAM: hiu-yhct
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.16.0'
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Authenticate with Google Cloud OIDC
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: yhct-social-260902-42a4
+          workload_identity_provider: projects/244889451934/locations/global/workloadIdentityPools/github-yhct-social/providers/github-main
+          service_account: yhct-github-deploy@yhct-social-260902-42a4.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+
+      - name: Install Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: yhct-social-260902-42a4
+
+      - name: Verify finalization IAM
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          payload='{"permissions":["datastore.databases.get","datastore.databases.create","datastore.databases.delete","datastore.exportEntities","datastore.importEntities","firebaseauth.users.get","firebaseauth.users.create","firebaseauth.users.update","storage.buckets.create","storage.buckets.get","storage.buckets.update","resourcemanager.projects.getIamPolicy","resourcemanager.projects.setIamPolicy"]}'
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d "$payload" \
+            "https://cloudresourcemanager.googleapis.com/v1/projects/${GOOGLE_CLOUD_PROJECT}:testIamPermissions" \
+            -o /tmp/v2-final-iam.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const granted = new Set(JSON.parse(fs.readFileSync('/tmp/v2-final-iam.json', 'utf8')).permissions || []);
+          const required = [
+            'datastore.databases.get','datastore.databases.create','datastore.databases.delete',
+            'datastore.exportEntities','datastore.importEntities',
+            'firebaseauth.users.get','firebaseauth.users.create','firebaseauth.users.update',
+            'storage.buckets.create','storage.buckets.get','storage.buckets.update',
+            'resourcemanager.projects.getIamPolicy','resourcemanager.projects.setIamPolicy',
+          ];
+          const missing = required.filter((permission) => !granted.has(permission));
+          if (missing.length) {
+            console.error('V2_FINAL_IAM=FAIL missing=' + missing.join(','));
+            process.exit(31);
+          }
+          console.log('V2_FINAL_IAM=PASS');
+          NODE
+
+      - name: Discover Firestore and compatible bucket locations
+        id: location
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          firestore_location="$(gcloud firestore databases describe --database='(default)' --project="$GOOGLE_CLOUD_PROJECT" --format='value(locationId)')"
+          test -n "$firestore_location"
+          case "$firestore_location" in
+            nam5|nam7) bucket_location='US' ;;
+            eur3) bucket_location='EU' ;;
+            *) bucket_location="$firestore_location" ;;
+          esac
+          echo "firestore_location=$firestore_location" >> "$GITHUB_OUTPUT"
+          echo "bucket_location=$bucket_location" >> "$GITHUB_OUTPUT"
+          echo "FIRESTORE_LOCATION=$firestore_location"
+          echo "RECOVERY_BUCKET_LOCATION=$bucket_location"
+
+      - name: Grant recovery roles to isolated ACC runtime identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          runtime_sa='yhct-acc-runtime@yhct-social-260902-42a4.iam.gserviceaccount.com'
+          for role in roles/datastore.importExportAdmin roles/datastore.restoreAdmin; do
+            gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
+              --member="serviceAccount:${runtime_sa}" \
+              --role="$role" \
+              --condition=None \
+              --quiet >/dev/null
+          done
+          echo 'ACC_RECOVERY_IAM=PASS'
+
+      - name: Provision versioning and lifecycle on recovery bucket
+        shell: bash
+        env:
+          BUCKET_LOCATION: ${{ steps.location.outputs.bucket_location }}
+        run: |
+          set -Eeuo pipefail
+          bucket="gs://${RECOVERY_EXPORT_BUCKET}"
+          if gcloud storage buckets describe "$bucket" --project="$GOOGLE_CLOUD_PROJECT" >/dev/null 2>&1; then
+            actual_location="$(gcloud storage buckets describe "$bucket" --project="$GOOGLE_CLOUD_PROJECT" --format='value(location)')"
+            [[ "${actual_location^^}" == "${BUCKET_LOCATION^^}" ]] || { echo "RECOVERY_BUCKET_LOCATION_MISMATCH expected=$BUCKET_LOCATION actual=$actual_location"; exit 32; }
+            echo 'RECOVERY_BUCKET=EXISTS'
+          else
+            gcloud storage buckets create "$bucket" --project="$GOOGLE_CLOUD_PROJECT" --location="$BUCKET_LOCATION" --uniform-bucket-level-access
+            echo 'RECOVERY_BUCKET=CREATED'
+          fi
+          cat > /tmp/recovery-lifecycle.json <<'JSON'
+          {
+            "rule": [
+              {"action": {"type": "Delete"}, "condition": {"age": 365}},
+              {"action": {"type": "Delete"}, "condition": {"daysSinceNoncurrentTime": 30}}
+            ]
+          }
+          JSON
+          gcloud storage buckets update "$bucket" --versioning --lifecycle-file=/tmp/recovery-lifecycle.json --quiet
+          echo 'RECOVERY_BUCKET_POLICY=PASS versioning=enabled lifecycle=enabled'
+
+      - name: Resolve Firebase web API config without storing credentials
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          encoded_app_id="$(node -p "encodeURIComponent(process.env.FIREBASE_WEB_APP_ID)")"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            "https://firebase.googleapis.com/v1beta1/projects/${GOOGLE_CLOUD_PROJECT}/webApps/${encoded_app_id}/config" \
+            -o /tmp/firebase-web-config.json
+          web_api_key="$(node -e "const j=require('/tmp/firebase-web-config.json'); if(!j.apiKey)process.exit(2); process.stdout.write(j.apiKey)")"
+          echo "::add-mask::$web_api_key"
+          echo "FIREBASE_WEB_API_KEY=$web_api_key" >> "$GITHUB_ENV"
+          echo 'FIREBASE_WEB_CONFIG=PASS'
+
+      - name: Provision and authenticate synthetic E2E accounts
+        run: node scripts/finalize-v2-e2e.mjs --provision-and-test
+
+      - name: Export production Firestore checkpoint
+        id: checkpoint
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          request_prefix="gs://${RECOVERY_EXPORT_BUCKET}/yhct-recovery/v2-final/${GITHUB_SHA}-${GITHUB_RUN_ID}"
+          gcloud firestore export "$request_prefix" --database='(default)' --project="$GOOGLE_CLOUD_PROJECT" --format=json > /tmp/v2-final-export.json
+          output_uri="$(node - <<'NODE'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('/tmp/v2-final-export.json', 'utf8'));
+          const uri = data?.response?.outputUriPrefix || data?.metadata?.outputUriPrefix || '';
+          if (!uri.startsWith('gs://')) process.exit(2);
+          process.stdout.write(uri);
+          NODE
+          )"
+          echo "output_uri=$output_uri" >> "$GITHUB_OUTPUT"
+          echo 'RECOVERY_EXPORT=PASS'
+
+      - name: Create isolated recovery database
+        id: recovery
+        shell: bash
+        env:
+          FIRESTORE_LOCATION: ${{ steps.location.outputs.firestore_location }}
+        run: |
+          set -Eeuo pipefail
+          suffix="$(printf '%s' "$GITHUB_RUN_ID" | tail -c 16)"
+          recovery_db="recovery-v2-final-${suffix}"
+          [[ "$recovery_db" =~ ^recovery-v2-final-[a-z0-9-]+$ ]]
+          test "$recovery_db" != '(default)'
+          gcloud firestore databases create --database="$recovery_db" --location="$FIRESTORE_LOCATION" --type=firestore-native --project="$GOOGLE_CLOUD_PROJECT" --quiet
+          echo "recovery_database_id=$recovery_db" >> "$GITHUB_OUTPUT"
+          echo 'RECOVERY_DATABASE_CREATE=PASS'
+
+      - name: Import checkpoint into isolated recovery database
+        shell: bash
+        env:
+          RECOVERY_DATABASE_ID: ${{ steps.recovery.outputs.recovery_database_id }}
+          EXPORT_OUTPUT_URI: ${{ steps.checkpoint.outputs.output_uri }}
+        run: |
+          set -Eeuo pipefail
+          test "$RECOVERY_DATABASE_ID" != '(default)'
+          [[ "$RECOVERY_DATABASE_ID" =~ ^recovery-v2-final-[a-z0-9-]+$ ]]
+          gcloud firestore import "$EXPORT_OUTPUT_URI" --database="$RECOVERY_DATABASE_ID" --project="$GOOGLE_CLOUD_PROJECT"
+          echo 'RECOVERY_IMPORT=PASS'
+
+      - name: Validate isolated recovery data
+        env:
+          RECOVERY_DATABASE_ID: ${{ steps.recovery.outputs.recovery_database_id }}
+        run: node scripts/finalize-v2-e2e.mjs --validate-recovery
+
+      - name: Persist production ACC environment in Vercel
+        env:
+          RECOVERY_GCP_LOCATION: ${{ steps.location.outputs.firestore_location }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          node - <<'NODE' > /tmp/vercel-env.json
+          const vars = {
+            NEXT_PUBLIC_FIREBASE_API_KEY: process.env.FIREBASE_WEB_API_KEY,
+            NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: 'yhct-social-260902-42a4.firebaseapp.com',
+            NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'yhct-social-260902-42a4',
+            NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: 'yhct-social-260902-42a4.firebasestorage.app',
+            NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '244889451934',
+            NEXT_PUBLIC_FIREBASE_APP_ID: '1:244889451934:web:68766e1db11f532caeaa8f',
+            GCP_PROJECT_NUMBER: '244889451934',
+            GCP_SERVICE_ACCOUNT_EMAIL: 'yhct-acc-runtime@yhct-social-260902-42a4.iam.gserviceaccount.com',
+            GCP_WORKLOAD_IDENTITY_POOL_ID: 'vercel-yhct-social',
+            GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID: 'vercel-acc',
+            RECOVERY_GCP_PROJECT_ID: process.env.RECOVERY_GCP_PROJECT_ID,
+            RECOVERY_GCP_LOCATION: process.env.RECOVERY_GCP_LOCATION,
+            RECOVERY_EXPORT_BUCKET: process.env.RECOVERY_EXPORT_BUCKET,
+          };
+          if (Object.values(vars).some((value) => !value)) process.exit(2);
+          process.stdout.write(JSON.stringify(Object.entries(vars).map(([key, value]) => ({ key, value, type: 'plain', target: ['production'] }))));
+          NODE
+          status="$(curl --silent --show-error --output /tmp/vercel-env-response.json --write-out '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/vercel-env.json \
+            "https://api.vercel.com/v10/projects/${ACC_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}&upsert=true")"
+          [[ "$status" =~ ^20[01]$ ]] || { echo "VERCEL_RECOVERY_ENV=FAIL status=$status"; exit 34; }
+          echo 'VERCEL_RECOVERY_ENV=PASS'
+
+      - name: Redeploy ACC with persisted production environment
+        id: acc_deploy
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npm install --global vercel@59.10.0
+          vercel link --cwd admin-portal --yes --project yhct-social-admin --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN" >/dev/null
+          url="$(vercel deploy --cwd admin-portal --prod --yes --scope "$VERCEL_TEAM" --token="$VERCEL_TOKEN")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "ACC_RECOVERY_DEPLOY=PASS url=$url"
+
+      - name: Verify ACC recovery-enabled production response
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          url='${{ steps.acc_deploy.outputs.url }}'
+          status="$(curl -L -sS -o /tmp/acc-final.html -w '%{http_code}' "$url")"
+          [[ "$status" =~ ^[23][0-9][0-9]$ ]]
+          echo "ACC_FINAL_HTTP=PASS status=$status"
+
+      - name: Delete isolated recovery database
+        if: always() && steps.recovery.outputs.recovery_database_id != ''
+        shell: bash
+        env:
+          RECOVERY_DATABASE_ID: ${{ steps.recovery.outputs.recovery_database_id }}
+        run: |
+          set -Eeuo pipefail
+          test "$RECOVERY_DATABASE_ID" != '(default)'
+          [[ "$RECOVERY_DATABASE_ID" =~ ^recovery-v2-final-[a-z0-9-]+$ ]]
+          gcloud firestore databases delete --database="$RECOVERY_DATABASE_ID" --project="$GOOGLE_CLOUD_PROJECT" --quiet
+          echo 'RECOVERY_DATABASE_DELETE=PASS'
+
+      - name: Finalization summary
+        if: success()
+        env:
+          FIRESTORE_LOCATION: ${{ steps.location.outputs.firestore_location }}
+        run: echo "V2_FINALIZATION=PASS project=${GOOGLE_CLOUD_PROJECT} location=${FIRESTORE_LOCATION} bucket=${RECOVERY_EXPORT_BUCKET}"
