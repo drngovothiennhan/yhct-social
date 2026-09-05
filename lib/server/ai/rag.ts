@@ -100,20 +100,25 @@ async function resolveManifestSources(chunks: GeminiGroundedResult['chunks']): P
   if (retrieved.length === 0) return [];
   const { rootAdminDb } = await import('../firebase-admin.ts');
   const snapshot = await rootAdminDb().collection('aiKnowledgeSources').where('status', '==', 'ready').limit(50).get();
-  const manifests = snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
+  const manifests: Array<{ id: string; title: string }> = snapshot.docs.map((doc) => {
+    const data = doc.data() as Record<string, unknown>;
+    return {
+      id: doc.id,
+      title: typeof data.title === 'string' ? data.title : '',
+    };
+  });
   const sources: AiSource[] = [];
   const seen = new Set<string>();
   for (const chunk of retrieved) {
     const title = chunk.title?.trim();
     const match = manifests.find((item) => {
-      const manifestTitle = typeof item.title === 'string' ? item.title : '';
-      return title && manifestTitle && (manifestTitle === title || manifestTitle.includes(title) || title.includes(manifestTitle));
+      const manifestTitle = item.title;
+      return Boolean(title && manifestTitle && (manifestTitle === title || manifestTitle.includes(title) || title.includes(manifestTitle)));
     });
     if (!match) continue;
-    const id = String(match.id);
-    if (seen.has(id)) continue;
-    seen.add(id);
-    sources.push({ id, title: typeof match.title === 'string' ? match.title : 'Nguồn nội bộ' });
+    if (seen.has(match.id)) continue;
+    seen.add(match.id);
+    sources.push({ id: match.id, title: match.title || 'Nguồn nội bộ' });
     if (sources.length >= 30) break;
   }
   return sources;
