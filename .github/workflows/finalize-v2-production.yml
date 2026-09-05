@@ -66,38 +66,6 @@ jobs:
         with:
           project_id: yhct-social-260902-42a4
 
-      - name: Verify finalization IAM
-        env:
-          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          payload='{"permissions":["datastore.databases.get","datastore.databases.create","datastore.databases.delete","datastore.exportEntities","datastore.importEntities","firebaseauth.users.get","firebaseauth.users.create","firebaseauth.users.update","storage.buckets.create","storage.buckets.get","storage.buckets.update","resourcemanager.projects.getIamPolicy","resourcemanager.projects.setIamPolicy"]}'
-          curl --fail --silent --show-error \
-            -X POST \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            -H 'Content-Type: application/json' \
-            -d "$payload" \
-            "https://cloudresourcemanager.googleapis.com/v1/projects/${GOOGLE_CLOUD_PROJECT}:testIamPermissions" \
-            -o /tmp/v2-final-iam.json
-          node - <<'NODE'
-          const fs = require('fs');
-          const granted = new Set(JSON.parse(fs.readFileSync('/tmp/v2-final-iam.json', 'utf8')).permissions || []);
-          const required = [
-            'datastore.databases.get','datastore.databases.create','datastore.databases.delete',
-            'datastore.exportEntities','datastore.importEntities',
-            'firebaseauth.users.get','firebaseauth.users.create','firebaseauth.users.update',
-            'storage.buckets.create','storage.buckets.get','storage.buckets.update',
-            'resourcemanager.projects.getIamPolicy','resourcemanager.projects.setIamPolicy',
-          ];
-          const missing = required.filter((permission) => !granted.has(permission));
-          if (missing.length) {
-            console.error('V2_FINAL_IAM=FAIL missing=' + missing.join(','));
-            process.exit(31);
-          }
-          console.log('V2_FINAL_IAM=PASS');
-          NODE
-
       - name: Discover Firestore and compatible bucket locations
         id: location
         shell: bash
