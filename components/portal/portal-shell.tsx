@@ -73,7 +73,7 @@ export function PortalShell({ children, contextual }: { children: ReactNode; con
 
         <main className="min-w-0 space-y-4">
           <RecoveryBanner />
-          {!loading && (!user || claims?.mustChangePassword) ? (
+          {!loading && !user ? (
             <div className="xl:hidden">
               <AuthCard />
             </div>
