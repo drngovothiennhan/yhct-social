@@ -8,6 +8,7 @@ import { AuthCard } from '@/components/auth/auth-card';
 import { useAuth } from '@/components/providers/auth-provider';
 import { AiResearchPanel } from '@/components/portal/ai-research-panel';
 import { HardwareModeControl } from '@/components/portal/hardware-mode-control';
+import { RecoveryBanner } from '@/components/portal/recovery-banner';
 import { PORTAL_NAVIGATION } from '@/lib/navigation';
 
 const icons = {
@@ -71,6 +72,7 @@ export function PortalShell({ children, contextual }: { children: ReactNode; con
         </aside>
 
         <main className="min-w-0 space-y-4">
+          <RecoveryBanner />
           {claims?.mustChangePassword ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               Bạn cần đổi mật khẩu tạm thời trước khi đăng bài, bình luận hoặc bày tỏ cảm xúc.
