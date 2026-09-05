@@ -5,13 +5,23 @@ import { readFile } from 'node:fs/promises';
 const packageJson = JSON.parse(
   await readFile(new URL('../package.json', import.meta.url), 'utf8'),
 );
+const accPackageJson = JSON.parse(
+  await readFile(new URL('../admin-portal/package.json', import.meta.url), 'utf8'),
+);
 
 async function readProjectFile(path) {
   return readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
-test('release metadata is frozen at version 1.0.0', () => {
-  assert.equal(packageJson.version, '1.0.0');
+test('release metadata is frozen at version 2.0.0', () => {
+  assert.equal(packageJson.version, '2.0.0');
+  assert.equal(accPackageJson.version, '2.0.0');
+});
+
+test('ACC shell identifies the official v2.0 release without beta labeling', async () => {
+  const shell = await readProjectFile('admin-portal/app/acc-shell.tsx');
+  assert.match(shell, /YHCT Social · v2\.0/);
+  assert.doesNotMatch(shell, /Beta 2\.0/);
 });
 
 test('modern app-web manifest exposes standalone install metadata', async () => {
