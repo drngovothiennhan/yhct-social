@@ -65,7 +65,6 @@ export async function PATCH(
       if (!canEditClubTitle(actorRole, targetRole)) throw new AccHttpError(403, 'TITLE_CHANGE_FORBIDDEN');
       await targetProfile.ref.update({
         clubTitle: title,
-        professionalTitle: title,
         updatedAt: FieldValue.serverTimestamp(),
       });
       return Response.json({ ok: true, clubTitle: title });
