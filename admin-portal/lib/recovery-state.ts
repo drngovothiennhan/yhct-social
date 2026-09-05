@@ -50,6 +50,7 @@ export async function setRecoveryState(input: {
   const mode = validateRecoveryMode(input.mode);
   const reason = validateRecoveryReason(input.reason);
   const operationId = validateOperationId(input.operationId);
+  const immutableFingerprint = JSON.stringify({ action: 'recovery.state.set', mode, reason });
   const db = adminDb();
   const stateRef = db.doc('system/recovery');
   const auditRef = db.doc(`adminAudit/${operationId}`);
@@ -62,8 +63,7 @@ export async function setRecoveryState(input: {
 
     if (auditSnapshot.exists) {
       const recorded = auditSnapshot.data() as Record<string, unknown>;
-      const after = recorded.after as Record<string, unknown> | undefined;
-      if (recorded.action === 'recovery.state.set' && after?.mode === mode) {
+      if (recorded.action === 'recovery.state.set' && recorded.immutableFingerprint === immutableFingerprint) {
         return { replayed: true, state: stateFromData(stateSnapshot.exists ? stateSnapshot.data() as Record<string, unknown> : undefined) };
       }
       throw new Error('RECOVERY_OPERATION_CONFLICT');
@@ -98,7 +98,7 @@ export async function setRecoveryState(input: {
       before: { mode: before.mode, readOnlyPublic: before.readOnlyPublic },
       after: { mode: after.mode, readOnlyPublic: after.readOnlyPublic },
     });
-    transaction.create(auditRef, { ...audit, createdAt: FieldValue.serverTimestamp() });
+    transaction.create(auditRef, { ...audit, createdAt: FieldValue.serverTimestamp(), immutableFingerprint });
     return { replayed: false, state: after };
   });
 }
