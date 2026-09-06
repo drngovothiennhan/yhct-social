@@ -70,6 +70,10 @@ service cloud.firestore {
         && currentUser().verificationStatus == 'verified';
     }
 
+    function validProfessionalLabel(data) {
+      return !data.professionalLabel || isVerifiedPractitioner();
+    }
+
     function validAccountType(value) {
       return value in ['member', 'practitioner', 'student', 'patient'];
     }
@@ -270,6 +274,10 @@ service cloud.firestore {
         && data.updatedAt == request.time;
     }
 
+    function validVerificationResubmit(uid, before, after) {
+      return before.status == 'rejected' && validVerificationRequest(uid, after);
+    }
+
     match /users/{uid} {
       allow read: if signedIn();
       allow create: if isOwner(uid) && validNewUser(request.resource.data);
@@ -277,7 +285,8 @@ service cloud.firestore {
       allow delete: if false;
 
       match /private/{documentId} {
-        allow read: if isOwner(uid) || isModerator();
+        allow read: if (documentId == 'access' && isOwner(uid))
+          || (documentId != 'access' && (isOwner(uid) || isModerator()));
         allow create, update: if documentId == 'verification' && (isOwner(uid) || isModerator());
         allow delete: if documentId == 'verification' && (isOwner(uid) || isAdmin());
         allow write: if false;
@@ -302,7 +311,7 @@ service cloud.firestore {
           && request.resource.data.authorPhotoURL == currentUser().photoURL
           && request.resource.data.authorProfessionalTitle == currentUser().professionalTitle
           && request.resource.data.status == 'published'
-          && (!request.resource.data.professionalLabel || isVerifiedPractitioner())
+          && validProfessionalLabel(request.resource.data)
           && (request.resource.data.type != 'clinical_case' || request.resource.data.isDeidentified == true)
           && request.resource.data.createdAt == request.time
           && request.resource.data.updatedAt == request.time);
@@ -411,8 +420,7 @@ service cloud.firestore {
     match /verificationRequests/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
       allow create: if validVerificationRequest(uid, request.resource.data);
-      allow update: if resource.data.status == 'rejected'
-        && validVerificationRequest(uid, request.resource.data);
+      allow update: if validVerificationResubmit(uid, resource.data, request.resource.data);
       allow delete: if false;
     }
 
