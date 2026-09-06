@@ -69,7 +69,7 @@ export function ActivityDetailScreen({ activityId }: { activityId: string }) {
   }, [activityId]);
 
   useEffect(() => {
-    if (!user) { setRegistration(null); return; }
+    if (!user) return;
     let active = true;
     void loadMyActivityRegistration(activityId)
       .then((record) => { if (active) setRegistration(record?.status ?? null); })
@@ -94,7 +94,8 @@ export function ActivityDetailScreen({ activityId }: { activityId: string }) {
   if (error && !activity) return <p className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>;
   if (!activity) return <p className="text-sm text-slate-500">Đang tải hoạt động…</p>;
 
-  const activeRegistration = registration === 'registered' || registration === 'waitlisted';
+  const effectiveRegistration = user ? registration : null;
+  const activeRegistration = effectiveRegistration === 'registered' || effectiveRegistration === 'waitlisted';
 
   return (
     <div className="space-y-4">
@@ -111,7 +112,7 @@ export function ActivityDetailScreen({ activityId }: { activityId: string }) {
           <div className="mt-5 flex flex-wrap items-center gap-3">
             {!user ? <p className="text-sm text-slate-500">Đăng nhập để đăng ký tham gia.</p> : activeRegistration ? (
               <>
-                <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-800"><UserCheck className="h-4 w-4" />{registration === 'registered' ? 'Đã đăng ký' : 'Danh sách chờ'}</span>
+                <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-800"><UserCheck className="h-4 w-4" />{effectiveRegistration === 'registered' ? 'Đã đăng ký' : 'Danh sách chờ'}</span>
                 <button disabled={busy} onClick={() => void cancel()} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Hủy đăng ký</button>
               </>
             ) : (
