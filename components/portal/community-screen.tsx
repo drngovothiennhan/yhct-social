@@ -24,6 +24,7 @@ export function CommunityScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const selected = useMemo(() => questions.find((item) => item.id === selectedId) ?? null, [questions, selectedId]);
+  const visibleAnswers = selected ? answers : [];
 
   async function reloadQuestions() {
     setQuestions(await listCommunityQuestions());
@@ -38,7 +39,7 @@ export function CommunityScreen() {
   }, []);
 
   useEffect(() => {
-    if (!selectedId) { setAnswers([]); return; }
+    if (!selectedId) return;
     let active = true;
     void listCommunityAnswers(selectedId).then((items) => { if (active) setAnswers(items); }).catch(() => { if (active) setAnswers([]); });
     return () => { active = false; };
@@ -109,7 +110,7 @@ export function CommunityScreen() {
               <div><h2 className="text-lg font-bold text-slate-950">{selected.title}</h2><p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-700">{selected.content}</p></div>
               <div className="border-t border-slate-100 pt-4">
                 <h3 className="font-semibold text-slate-900">Câu trả lời</h3>
-                <div className="mt-3 space-y-3">{answers.length === 0 ? <p className="text-sm text-slate-500">Chưa có câu trả lời.</p> : answers.map((item) => <div key={item.id} className="rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-700">{item.content}</div>)}</div>
+                <div className="mt-3 space-y-3">{visibleAnswers.length === 0 ? <p className="text-sm text-slate-500">Chưa có câu trả lời.</p> : visibleAnswers.map((item) => <div key={item.id} className="rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-700">{item.content}</div>)}</div>
               </div>
               <div className="border-t border-slate-100 pt-4">
                 <textarea value={answer} onChange={(event) => setAnswer(event.target.value)} maxLength={8000} rows={4} placeholder="Viết câu trả lời…" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-600" />
