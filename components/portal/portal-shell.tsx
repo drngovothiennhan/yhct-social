@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { CalendarDays, HeartPulse, Home, UserRound, Users } from 'lucide-react';
+import { CalendarDays, HeartPulse, Home, MessageCircleQuestion, UserRound, Users } from 'lucide-react';
 import { AuthCard } from '@/components/auth/auth-card';
 import { useAuth } from '@/components/providers/auth-provider';
 import { AiResearchPanel } from '@/components/portal/ai-research-panel';
@@ -13,6 +13,7 @@ import { PORTAL_NAVIGATION } from '@/lib/navigation';
 
 const icons = {
   '/feed': Home,
+  '/community': MessageCircleQuestion,
   '/activities': CalendarDays,
   '/members': Users,
   '/profile': UserRound,
@@ -21,7 +22,7 @@ const icons = {
 function NavLinks({ mobile = false }: { mobile?: boolean }) {
   const pathname = usePathname();
   return (
-    <nav className={mobile ? 'grid grid-cols-4' : 'space-y-1'} aria-label="Điều hướng chính">
+    <nav className={mobile ? 'grid grid-cols-5' : 'space-y-1'} aria-label="Điều hướng chính">
       {PORTAL_NAVIGATION.map((item) => {
         const Icon = icons[item.href];
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
