@@ -43,13 +43,19 @@ service cloud.firestore {
     }
 
     function isSuperModerator() {
-      return hasSuperModeratorClaim()
-        || (currentUserExists() && currentUser().role == 'admin');
+      return hasSuperModeratorClaim() || (currentUserExists() && currentUser().role == 'admin');
     }
 
     function isAdmin() {
-      return hasAdminClaim()
-        || (currentUserExists() && currentUser().role == 'admin');
+      return hasAdminClaim() || (currentUserExists() && currentUser().role == 'admin');
+    }
+
+    function sameDepartment(targetDepartment) {
+      return isSuperModerator()
+        || (hasModeratorClaim()
+          && request.auth.token.role == 'mod'
+          && request.auth.token.department is string
+          && request.auth.token.department == targetDepartment);
     }
 
     function canMutateSocial() {
@@ -62,6 +68,10 @@ service cloud.firestore {
       return currentUserExists()
         && currentUser().accountType == 'practitioner'
         && currentUser().verificationStatus == 'verified';
+    }
+
+    function validProfessionalLabel(data) {
+      return !data.professionalLabel || isVerifiedPractitioner();
     }
 
     function validAccountType(value) {
@@ -95,7 +105,8 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'displayName', 'photoURL', 'bio', 'specialties', 'accountType',
           'role', 'verificationStatus', 'professionalTitle', 'clubTitle',
-          'memberCode', 'provisioningSource', 'accountStatus', 'createdAt', 'updatedAt'
+          'memberCode', 'provisioningSource', 'accountStatus', 'department',
+          'scoreTotal', 'createdAt', 'updatedAt'
         ])
         && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
         && data.photoURL is string && data.photoURL.size() <= 500
@@ -109,6 +120,8 @@ service cloud.firestore {
         && (!('memberCode' in data) || (data.memberCode is string && data.memberCode.size() <= 40))
         && (!('provisioningSource' in data) || (data.provisioningSource is string && data.provisioningSource.size() <= 80))
         && (!('accountStatus' in data) || data.accountStatus in ['active', 'disabled'])
+        && (!('department' in data) || (data.department is string && data.department.size() <= 120))
+        && (!('scoreTotal' in data) || data.scoreTotal is number)
         && data.createdAt is timestamp && data.updatedAt is timestamp;
     }
 
@@ -118,6 +131,8 @@ service cloud.firestore {
         && data.professionalTitle == ''
         && !('memberCode' in data)
         && !('provisioningSource' in data)
+        && !('department' in data)
+        && !('scoreTotal' in data)
         && data.createdAt == request.time
         && data.updatedAt == request.time
         && (
@@ -134,6 +149,9 @@ service cloud.firestore {
         ])
         && after.role == before.role
         && after.professionalTitle == before.professionalTitle
+        && (!('clubTitle' in before) || after.clubTitle == before.clubTitle)
+        && (!('department' in before) || after.department == before.department)
+        && (!('scoreTotal' in before) || after.scoreTotal == before.scoreTotal)
         && validProvisioningIdentity(before, after)
         && after.createdAt == before.createdAt
         && after.updatedAt == request.time
@@ -150,34 +168,11 @@ service cloud.firestore {
         );
     }
 
-    function validAdminUserUpdate(before, after) {
-      return validUser(after)
-        && validProvisioningIdentity(before, after)
-        && after.createdAt == before.createdAt
-        && after.updatedAt == request.time
-        && (
-          (after.accountType == 'practitioner'
-            && after.verificationStatus in ['unsubmitted', 'pending', 'verified', 'rejected'])
-          || (after.accountType != 'practitioner' && after.verificationStatus == 'not_required')
-        );
-    }
-
-    // Legacy v1 post validation remains during the Module B migration window.
     function validPost(data) {
-      return data.keys().hasAll([
-          'authorId', 'authorDisplayName', 'authorPhotoURL', 'authorProfessionalTitle',
-          'professionalLabel', 'type', 'title', 'content', 'mediaPaths', 'tags',
-          'isDeidentified', 'status', 'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasOnly([
-          'authorId', 'authorDisplayName', 'authorPhotoURL', 'authorProfessionalTitle',
-          'professionalLabel', 'type', 'title', 'content', 'mediaPaths', 'tags',
-          'isDeidentified', 'status', 'createdAt', 'updatedAt'
-        ])
-        && data.authorId is string
-        && data.authorDisplayName is string && data.authorDisplayName.size() >= 1 && data.authorDisplayName.size() <= 80
-        && data.authorPhotoURL is string && data.authorPhotoURL.size() <= 500
-        && data.authorProfessionalTitle is string && data.authorProfessionalTitle.size() <= 120
+      return data.authorId is string
+        && data.authorDisplayName is string
+        && data.authorPhotoURL is string
+        && data.authorProfessionalTitle is string
         && data.professionalLabel is bool
         && data.type in ['clinical_case', 'remedy', 'qa']
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 180
@@ -189,63 +184,24 @@ service cloud.firestore {
         && data.createdAt is timestamp && data.updatedAt is timestamp;
     }
 
-    function validPostCreate(data) {
-      return validPost(data)
-        && currentUserExists()
-        && data.authorId == request.auth.uid
-        && data.authorDisplayName == currentUser().displayName
-        && data.authorPhotoURL == currentUser().photoURL
-        && data.authorProfessionalTitle == currentUser().professionalTitle
-        && data.status == 'published'
-        && (!data.professionalLabel || isVerifiedPractitioner())
-        && (data.type != 'clinical_case' || data.isDeidentified == true)
-        && data.createdAt == request.time
-        && data.updatedAt == request.time;
+    function publishedPost(postId) {
+      return exists(/databases/$(database)/documents/posts/$(postId))
+        && get(/databases/$(database)/documents/posts/$(postId)).data.status == 'published';
     }
 
-    function validOwnerPostUpdate(before, after) {
-      return validPost(after)
-        && after.diff(before).affectedKeys().hasOnly(['title', 'content', 'mediaPaths', 'tags', 'updatedAt'])
-        && after.authorId == before.authorId
-        && after.authorDisplayName == before.authorDisplayName
-        && after.authorPhotoURL == before.authorPhotoURL
-        && after.authorProfessionalTitle == before.authorProfessionalTitle
-        && after.professionalLabel == before.professionalLabel
-        && after.type == before.type
-        && after.isDeidentified == before.isDeidentified
-        && after.status == before.status
-        && after.createdAt == before.createdAt
-        && after.updatedAt == request.time;
-    }
-
-    function validModeratedPostUpdate(before, after) {
-      return validPost(after)
-        && after.diff(before).affectedKeys().hasOnly(['status', 'updatedAt'])
-        && after.authorId == before.authorId
-        && after.createdAt == before.createdAt
-        && after.updatedAt == request.time;
+    function activeSocialPost(postId) {
+      return exists(/databases/$(database)/documents/posts/$(postId))
+        && get(/databases/$(database)/documents/posts/$(postId)).data.status == 'active';
     }
 
     function validSocialPost(data) {
-      return data.keys().hasAll([
-          'authorId', 'authorNameSnapshot', 'authorPhotoSnapshot', 'authorRoleSnapshot',
-          'kind', 'visibility', 'text', 'media', 'activityId', 'reactionCount',
-          'commentCount', 'edited', 'status', 'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasOnly([
-          'authorId', 'authorNameSnapshot', 'authorPhotoSnapshot', 'authorRoleSnapshot',
-          'kind', 'visibility', 'text', 'media', 'activityId', 'reactionCount',
-          'commentCount', 'edited', 'status', 'createdAt', 'updatedAt'
-        ])
-        && data.authorId is string
-        && data.authorNameSnapshot is string && data.authorNameSnapshot.size() >= 1 && data.authorNameSnapshot.size() <= 80
-        && (data.authorPhotoSnapshot == null || (data.authorPhotoSnapshot is string && data.authorPhotoSnapshot.size() <= 500))
+      return data.authorId is string
+        && data.authorNameSnapshot is string
         && data.authorRoleSnapshot in ['member', 'mod', 'super_mod', 'admin']
         && data.kind in ['member_post', 'club_news', 'activity_update']
         && data.visibility in ['members', 'public']
         && data.text is string && data.text.size() >= 1 && data.text.size() <= 12000
         && data.media is list && data.media.size() <= 6
-        && (data.activityId == null || data.activityId is string)
         && data.reactionCount is int && data.reactionCount >= 0
         && data.commentCount is int && data.commentCount >= 0
         && data.edited is bool
@@ -259,14 +215,12 @@ service cloud.firestore {
         && currentUserExists()
         && data.authorId == request.auth.uid
         && data.authorNameSnapshot == currentUser().displayName
-        && (data.authorPhotoSnapshot == currentUser().photoURL || (data.authorPhotoSnapshot == null && currentUser().photoURL == ''))
         && data.authorRoleSnapshot == request.auth.token.role
         && (data.kind == 'member_post' || isModerator())
         && data.reactionCount == 0
         && data.commentCount == 0
         && data.edited == false
         && data.status == 'active'
-        && (data.kind != 'activity_update' || data.activityId != null)
         && data.createdAt == request.time
         && data.updatedAt == request.time;
     }
@@ -275,153 +229,27 @@ service cloud.firestore {
       return validSocialPost(after)
         && after.diff(before).affectedKeys().hasOnly(['text', 'media', 'visibility', 'edited', 'status', 'updatedAt'])
         && after.authorId == before.authorId
-        && after.authorNameSnapshot == before.authorNameSnapshot
-        && after.authorPhotoSnapshot == before.authorPhotoSnapshot
-        && after.authorRoleSnapshot == before.authorRoleSnapshot
-        && after.kind == before.kind
-        && after.activityId == before.activityId
         && after.reactionCount == before.reactionCount
         && after.commentCount == before.commentCount
         && after.createdAt == before.createdAt
         && after.updatedAt == request.time
-        && after.edited == true
         && after.status in ['active', 'deleted'];
     }
 
-    function validModeratedSocialPostUpdate(before, after) {
-      return validSocialPost(after)
-        && after.diff(before).affectedKeys().hasOnly(['status', 'updatedAt'])
-        && after.authorId == before.authorId
-        && after.authorNameSnapshot == before.authorNameSnapshot
-        && after.authorPhotoSnapshot == before.authorPhotoSnapshot
-        && after.authorRoleSnapshot == before.authorRoleSnapshot
-        && after.kind == before.kind
-        && after.visibility == before.visibility
-        && after.text == before.text
-        && after.media == before.media
-        && after.activityId == before.activityId
-        && after.reactionCount == before.reactionCount
-        && after.commentCount == before.commentCount
-        && after.edited == before.edited
-        && after.createdAt == before.createdAt
-        && after.updatedAt == request.time;
-    }
-
-    function activeSocialPost(postId) {
-      return exists(/databases/$(database)/documents/posts/$(postId))
-        && get(/databases/$(database)/documents/posts/$(postId)).data.status == 'active';
-    }
-
-    function readableSocialPost(data) {
-      return data.status == 'active'
-        && (data.visibility == 'public' || (signedIn() && request.auth.token.clubMember == true));
-    }
-
-    function publishedPost(postId) {
-      return exists(/databases/$(database)/documents/posts/$(postId))
-        && get(/databases/$(database)/documents/posts/$(postId)).data.status == 'published';
-    }
-
-    // Legacy comments remain readable during migration.
-    function validComment(data) {
-      return data.keys().hasAll([
-          'postId', 'authorId', 'authorDisplayName', 'authorPhotoURL', 'parentId',
-          'depth', 'content', 'status', 'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasOnly([
-          'postId', 'authorId', 'authorDisplayName', 'authorPhotoURL', 'parentId',
-          'depth', 'content', 'status', 'createdAt', 'updatedAt'
-        ])
-        && data.postId is string && data.postId.size() >= 1
-        && data.authorId is string
-        && data.authorDisplayName is string && data.authorDisplayName.size() >= 1 && data.authorDisplayName.size() <= 80
-        && data.authorPhotoURL is string && data.authorPhotoURL.size() <= 500
-        && data.parentId is string
-        && data.depth is int && data.depth >= 0 && data.depth <= 3
-        && data.content is string && data.content.size() <= 4000
-        && data.status in ['active', 'hidden', 'deleted']
-        && data.createdAt is timestamp && data.updatedAt is timestamp;
-    }
-
-    function validCommentParent(data) {
-      return (data.parentId == '' && data.depth == 0)
-        || (data.parentId != ''
-          && exists(/databases/$(database)/documents/comments/$(data.parentId))
-          && get(/databases/$(database)/documents/comments/$(data.parentId)).data.postId == data.postId
-          && data.depth == get(/databases/$(database)/documents/comments/$(data.parentId)).data.depth + 1
-          && data.depth <= 3);
-    }
-
-    function validCommentCreate(data) {
-      return validComment(data)
-        && currentUserExists()
-        && publishedPost(data.postId)
-        && data.authorId == request.auth.uid
-        && data.authorDisplayName == currentUser().displayName
-        && data.authorPhotoURL == currentUser().photoURL
-        && data.status == 'active'
-        && data.content.size() >= 1
-        && validCommentParent(data)
-        && data.createdAt == request.time
-        && data.updatedAt == request.time;
-    }
-
-    function validOwnerCommentUpdate(before, after) {
-      return validComment(after)
-        && after.diff(before).affectedKeys().hasOnly(['content', 'status', 'updatedAt'])
-        && after.postId == before.postId
-        && after.authorId == before.authorId
-        && after.authorDisplayName == before.authorDisplayName
-        && after.authorPhotoURL == before.authorPhotoURL
-        && after.parentId == before.parentId
-        && after.depth == before.depth
-        && after.createdAt == before.createdAt
-        && after.updatedAt == request.time
-        && ((after.status == 'active' && after.content.size() >= 1)
-          || (after.status == 'deleted' && after.content == ''));
-    }
-
     function validSocialComment(data) {
-      return data.keys().hasAll([
-          'authorId', 'authorNameSnapshot', 'authorPhotoSnapshot', 'text',
-          'edited', 'status', 'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasOnly([
-          'authorId', 'authorNameSnapshot', 'authorPhotoSnapshot', 'text',
-          'edited', 'status', 'createdAt', 'updatedAt'
-        ])
-        && data.authorId is string
-        && data.authorNameSnapshot is string && data.authorNameSnapshot.size() >= 1 && data.authorNameSnapshot.size() <= 80
-        && (data.authorPhotoSnapshot == null || (data.authorPhotoSnapshot is string && data.authorPhotoSnapshot.size() <= 500))
+      return data.authorId is string
+        && data.authorNameSnapshot is string
         && data.text is string && data.text.size() <= 4000
         && data.edited is bool
         && data.status in ['active', 'hidden', 'deleted']
         && data.createdAt is timestamp && data.updatedAt is timestamp;
     }
 
-    function expectedReportId(data) {
-      return data.targetType == 'post'
-        ? 'post__' + data.postId + '__' + request.auth.uid
-        : 'comment__' + data.postId + '__' + data.commentId + '__' + request.auth.uid;
-    }
-
     function validReportCreate(reportId, data) {
       return canMutateSocial()
-        && data.keys().hasAll([
-          'reporterUid', 'targetType', 'postId', 'commentId', 'reasonCode', 'details',
-          'status', 'createdAt', 'updatedAt', 'assignedTo', 'resolvedBy', 'resolvedAt',
-          'resolution', 'resolutionReason'
-        ])
-        && data.keys().hasOnly([
-          'reporterUid', 'targetType', 'postId', 'commentId', 'reasonCode', 'details',
-          'status', 'createdAt', 'updatedAt', 'assignedTo', 'resolvedBy', 'resolvedAt',
-          'resolution', 'resolutionReason'
-        ])
         && request.resource.data.reporterUid == request.auth.uid
         && data.targetType in ['post', 'comment']
         && data.postId is string && data.postId.size() >= 1
-        && ((data.targetType == 'post' && data.commentId == null)
-          || (data.targetType == 'comment' && data.commentId is string && data.commentId.size() >= 1))
         && data.reasonCode in ['spam', 'misinformation', 'inappropriate', 'privacy', 'other']
         && data.details is string && data.details.size() <= 2000
         && request.resource.data.status == 'open'
@@ -431,115 +259,90 @@ service cloud.firestore {
         && data.resolution == null
         && data.resolutionReason == null
         && data.createdAt == request.time
-        && data.updatedAt == request.time
-        && reportId == expectedReportId(data);
+        && data.updatedAt == request.time;
     }
 
-    function validVerificationEvidenceItem(uid, item) {
-      return item is map
-        && item.keys().hasAll(['storagePath', 'type', 'label'])
-        && item.keys().hasOnly(['storagePath', 'type', 'label'])
-        && item.storagePath is string
-        && item.storagePath.matches('certificates/' + uid + '/[^/]+')
-        && item.type in ['license', 'degree', 'certificate', 'other']
-        && item.label is string && item.label.size() >= 1 && item.label.size() <= 120;
-    }
-
-    function validVerificationEvidenceList(uid, items) {
-      return items is list
-        && items.size() >= 1 && items.size() <= 6
-        && validVerificationEvidenceItem(uid, items[0])
-        && (items.size() < 2 || validVerificationEvidenceItem(uid, items[1]))
-        && (items.size() < 3 || validVerificationEvidenceItem(uid, items[2]))
-        && (items.size() < 4 || validVerificationEvidenceItem(uid, items[3]))
-        && (items.size() < 5 || validVerificationEvidenceItem(uid, items[4]))
-        && (items.size() < 6 || validVerificationEvidenceItem(uid, items[5]));
-    }
-
-    function validVerificationRequestBase(uid, data) {
+    function validVerificationRequest(uid, data) {
       return canMutateSocial()
         && request.auth.uid == uid
-        && currentUserExists()
-        && currentUser().accountType == 'practitioner'
-        && data.keys().hasAll([
-          'uid', 'status', 'professionalType', 'evidence', 'attempt',
-          'submittedAt', 'updatedAt', 'decisionBy', 'decisionAt', 'decisionReason'
-        ])
-        && data.keys().hasOnly([
-          'uid', 'status', 'professionalType', 'evidence', 'attempt',
-          'submittedAt', 'updatedAt', 'decisionBy', 'decisionAt', 'decisionReason'
-        ])
         && data.uid == uid
         && data.status == 'pending'
-        && data.professionalType is string
-        && data.professionalType.size() >= 1 && data.professionalType.size() <= 120
-        && validVerificationEvidenceList(uid, data.evidence)
-        && data.attempt is int && data.attempt >= 1
-        && data.submittedAt == request.time
-        && data.updatedAt == request.time
         && data.decisionBy == null
         && data.decisionAt == null
-        && data.decisionReason == null;
+        && data.decisionReason == null
+        && data.submittedAt == request.time
+        && data.updatedAt == request.time;
     }
 
-    function validVerificationRequestCreate(uid, data) {
-      return validVerificationRequestBase(uid, data)
-        && data.attempt == 1;
-    }
-
-    function validVerificationRequestResubmit(uid, before, after) {
-      return validVerificationRequestBase(uid, after)
-        && before.uid == uid
-        && before.status == 'rejected'
-        && before.attempt is int
-        && after.attempt == before.attempt + 1;
+    function validVerificationResubmit(uid, before, after) {
+      return before.status == 'rejected' && validVerificationRequest(uid, after);
     }
 
     match /users/{uid} {
       allow read: if signedIn();
       allow create: if isOwner(uid) && validNewUser(request.resource.data);
-      allow update: if (isOwner(uid) && validSelfUserUpdate(resource.data, request.resource.data))
-        || (isAdmin() && validAdminUserUpdate(resource.data, request.resource.data));
-      allow delete: if isAdmin() && request.auth.uid != uid;
+      allow update: if isOwner(uid) && validSelfUserUpdate(resource.data, request.resource.data);
+      allow delete: if false;
 
       match /private/{documentId} {
-        allow read: if documentId == 'access'
-          ? (isOwner(uid) || isModerator())
-          : (isOwner(uid) || isModerator());
-        allow create, update: if documentId == 'verification'
-          && (isOwner(uid) || isModerator());
-        allow delete: if documentId == 'verification'
-          && (isOwner(uid) || isAdmin());
+        allow read: if (documentId == 'access' && isOwner(uid))
+          || (documentId != 'access' && (isOwner(uid) || isModerator()));
+        allow create, update: if documentId == 'verification' && (isOwner(uid) || isModerator());
+        allow delete: if documentId == 'verification' && (isOwner(uid) || isAdmin());
         allow write: if false;
       }
     }
 
     match /posts/{postId} {
-      allow read: if (('kind' in resource.data) && readableSocialPost(resource.data))
+      allow read: if (('kind' in resource.data)
+          && resource.data.status == 'active'
+          && (resource.data.visibility == 'public' || (signedIn() && request.auth.token.clubMember == true)))
         || (('type' in resource.data) && resource.data.status == 'published')
         || (signedIn() && resource.data.authorId == request.auth.uid)
         || isModerator();
+
       allow create: if (('kind' in request.resource.data) && validSocialPostCreate(request.resource.data))
-        || (signedIn() && ('type' in request.resource.data) && validPostCreate(request.resource.data));
+        || (signedIn()
+          && ('type' in request.resource.data)
+          && validPost(request.resource.data)
+          && currentUserExists()
+          && request.resource.data.authorId == request.auth.uid
+          && request.resource.data.authorDisplayName == currentUser().displayName
+          && request.resource.data.authorPhotoURL == currentUser().photoURL
+          && request.resource.data.authorProfessionalTitle == currentUser().professionalTitle
+          && request.resource.data.status == 'published'
+          && validProfessionalLabel(request.resource.data)
+          && (request.resource.data.type != 'clinical_case' || request.resource.data.isDeidentified == true)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time);
+
       allow update: if (('kind' in resource.data)
           && canMutateSocial()
           && resource.data.authorId == request.auth.uid
           && validOwnerSocialPostUpdate(resource.data, request.resource.data))
-        || (('kind' in resource.data) && isModerator() && validModeratedSocialPostUpdate(resource.data, request.resource.data))
+        || (('kind' in resource.data)
+          && isModerator()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time)
         || (('type' in resource.data)
           && signedIn()
           && resource.data.authorId == request.auth.uid
-          && validOwnerPostUpdate(resource.data, request.resource.data))
-        || (('type' in resource.data) && isModerator() && validModeratedPostUpdate(resource.data, request.resource.data));
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'content', 'mediaPaths', 'tags', 'updatedAt'])
+          && request.resource.data.authorId == resource.data.authorId
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time)
+        || (('type' in resource.data)
+          && isModerator()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time);
+
       allow delete: if ('type' in resource.data)
         && ((signedIn() && resource.data.authorId == request.auth.uid) || isModerator());
 
-      // Temporary v1 compatibility. New clients use reactions.
       match /likes/{uid} {
         allow read: if publishedPost(postId) || isModerator();
         allow create: if isOwner(uid)
           && publishedPost(postId)
-          && request.resource.data.keys().hasOnly(['userId', 'createdAt'])
           && request.resource.data.userId == uid
           && request.resource.data.createdAt == request.time;
         allow update: if false;
@@ -551,7 +354,6 @@ service cloud.firestore {
         allow create: if canMutateSocial()
           && request.auth.uid == uid
           && activeSocialPost(postId)
-          && request.resource.data.keys().hasOnly(['uid', 'type', 'createdAt', 'updatedAt'])
           && request.resource.data.uid == uid
           && request.resource.data.type in ['like', 'heart', 'support']
           && request.resource.data.createdAt == request.time
@@ -576,47 +378,36 @@ service cloud.firestore {
           && validSocialComment(request.resource.data)
           && request.resource.data.authorId == request.auth.uid
           && request.resource.data.authorNameSnapshot == currentUser().displayName
-          && (request.resource.data.authorPhotoSnapshot == currentUser().photoURL
-            || (request.resource.data.authorPhotoSnapshot == null && currentUser().photoURL == ''))
           && request.resource.data.text.size() >= 1
           && request.resource.data.edited == false
           && request.resource.data.status == 'active'
           && request.resource.data.createdAt == request.time
           && request.resource.data.updatedAt == request.time;
-        allow update: if (canMutateSocial()
-            && resource.data.authorId == request.auth.uid
-            && validSocialComment(request.resource.data)
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'edited', 'status', 'updatedAt'])
-            && request.resource.data.authorId == resource.data.authorId
-            && request.resource.data.authorNameSnapshot == resource.data.authorNameSnapshot
-            && request.resource.data.authorPhotoSnapshot == resource.data.authorPhotoSnapshot
-            && request.resource.data.createdAt == resource.data.createdAt
-            && request.resource.data.updatedAt == request.time
-            && request.resource.data.edited == true
-            && ((request.resource.data.status == 'active' && request.resource.data.text.size() >= 1)
-              || (request.resource.data.status == 'deleted' && request.resource.data.text == '')))
-          || (isModerator()
-            && validSocialComment(request.resource.data)
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
-            && request.resource.data.authorId == resource.data.authorId
-            && request.resource.data.createdAt == resource.data.createdAt
-            && request.resource.data.updatedAt == request.time);
+        allow update: if canMutateSocial()
+          && resource.data.authorId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'edited', 'status', 'updatedAt'])
+          && request.resource.data.authorId == resource.data.authorId
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.edited == true;
         allow delete: if false;
       }
     }
 
-    // Legacy top-level comments stay available only for legacy post records.
     match /comments/{commentId} {
       allow read: if (resource.data.status in ['active', 'deleted'] && publishedPost(resource.data.postId))
         || (signedIn() && resource.data.authorId == request.auth.uid)
         || isModerator();
-      allow create: if signedIn() && validCommentCreate(request.resource.data);
-      allow update: if (signedIn()
-          && resource.data.authorId == request.auth.uid
-          && validOwnerCommentUpdate(resource.data, request.resource.data))
-        || (isModerator()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
-          && request.resource.data.updatedAt == request.time);
+      allow create: if signedIn()
+        && publishedPost(request.resource.data.postId)
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if signedIn()
+        && resource.data.authorId == request.auth.uid
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
       allow delete: if isModerator();
     }
 
@@ -628,8 +419,8 @@ service cloud.firestore {
 
     match /verificationRequests/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
-      allow create: if validVerificationRequestCreate(uid, request.resource.data);
-      allow update: if validVerificationRequestResubmit(uid, resource.data, request.resource.data);
+      allow create: if validVerificationRequest(uid, request.resource.data);
+      allow update: if validVerificationResubmit(uid, resource.data, request.resource.data);
       allow delete: if false;
     }
 
@@ -658,6 +449,75 @@ service cloud.firestore {
       allow delete: if isModerator();
     }
 
+    match /questions/{questionId} {
+      allow read: if signedIn() && request.auth.token.clubMember == true;
+      allow create: if canMutateSocial()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 1 && request.resource.data.title.size() <= 180
+        && request.resource.data.content is string
+        && request.resource.data.content.size() >= 1 && request.resource.data.content.size() <= 12000
+        && request.resource.data.tags is list && request.resource.data.tags.size() <= 10
+        && request.resource.data.status == 'open'
+        && request.resource.data.acceptedAnswerId == null
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if canMutateSocial()
+        && resource.data.authorId == request.auth.uid
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'content', 'tags', 'status', 'acceptedAnswerId', 'updatedAt'])
+        && request.resource.data.status in ['open', 'answered', 'closed']
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+
+      match /answers/{answerId} {
+        allow read: if signedIn() && request.auth.token.clubMember == true;
+        allow create: if canMutateSocial()
+          && request.resource.data.authorId == request.auth.uid
+          && request.resource.data.content is string
+          && request.resource.data.content.size() >= 1 && request.resource.data.content.size() <= 8000
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if canMutateSocial()
+          && resource.data.authorId == request.auth.uid
+          && request.resource.data.authorId == resource.data.authorId
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if false;
+      }
+    }
+
+    match /scoreTransactions/{transactionId} {
+      allow read: if isModerator() || (signedIn() && resource.data.memberId == request.auth.uid);
+      allow create: if false;
+      allow update, delete: if false;
+    }
+
+    match /scoreWeekLocks/{weekNumber} {
+      allow read: if signedIn() && request.auth.token.clubMember == true;
+      allow write: if false;
+    }
+
+    match /auditLogs/{auditId} {
+      allow read: if isAdmin();
+      allow create: if false;
+      allow update, delete: if false;
+    }
+
+    match /roleAssignments/{assignmentId} {
+      allow read: if isSuperModerator();
+      allow create: if false;
+      allow update, delete: if false;
+    }
+
+    match /recognitions/{recognitionId} {
+      allow read: if isModerator() || (signedIn() && resource.data.memberId == request.auth.uid && resource.data.status == 'approved');
+      allow create: if false;
+      allow update, delete: if false;
+    }
+
     match /migrationMembers/{memberKey} {
       allow read: if isModerator();
       allow write: if false;
@@ -666,9 +526,30 @@ service cloud.firestore {
     match /activities/{activityId} {
       allow read: if resource.data.status == 'published' || isModerator();
       allow write: if false;
+
+      match /registrations/{uid} {
+        allow read: if isOwner(uid) || isModerator();
+        allow create, update, delete: if false;
+      }
     }
 
     match /clubProvisioning/{memberCode} {
+      allow read, write: if false;
+    }
+
+    match /aiAnalyses/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /aiKnowledgeSources/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /aiQuotaDaily/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /aiQuotaWindows/{documentId} {
       allow read, write: if false;
     }
 
